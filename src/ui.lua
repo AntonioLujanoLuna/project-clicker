@@ -350,7 +350,7 @@ H - Toggle Help Panel
 S - Toggle Settings Panel
 R - Reset Camera Position
 E - Toggle Edge Scrolling
-A - Toggle Auto-Collection
+C - Toggle Auto-Collection
 V - Toggle Collection Radius
 + / - - Adjust UI Scale
 ESC - Close All Panels
@@ -359,6 +359,10 @@ Mouse Controls:
 Left Click - Collect Resources
 Middle Click & Drag - Move Camera
 Mouse Wheel - Zoom In/Out
+
+Camera Controls:
+A / Left Arrow - Move Camera Left
+D / Right Arrow - Move Camera Right
 
 Game Features:
 - Resources are highlighted when hovered

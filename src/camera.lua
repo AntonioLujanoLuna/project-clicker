@@ -22,7 +22,9 @@ local camera = {
     -- Edge scrolling
     edge_scroll_enabled = true,
     edge_scroll_margin = 30,
-    edge_scroll_speed = 300
+    edge_scroll_speed = 300,
+    -- Key scrolling
+    key_scroll_speed = 300  -- Speed for keyboard scrolling (pixels per second)
 }
 
 -- Set the ground level in world coordinates
@@ -210,6 +212,15 @@ function camera.update(dt)
         if mx > window_width - camera.edge_scroll_margin then
             camera.target_x = camera.target_x + camera.edge_scroll_speed * dt / camera.scale
         end
+    end
+    
+    -- Handle keyboard camera panning
+    if love.keyboard.isDown("a") or love.keyboard.isDown("left") then
+        camera.target_x = camera.target_x - camera.key_scroll_speed * dt / camera.scale
+    end
+    
+    if love.keyboard.isDown("d") or love.keyboard.isDown("right") then
+        camera.target_x = camera.target_x + camera.key_scroll_speed * dt / camera.scale
     end
     
     -- Smooth camera movement
