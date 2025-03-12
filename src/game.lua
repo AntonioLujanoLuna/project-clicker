@@ -144,9 +144,9 @@ function game.getBitFromPool()
         if not bit.active then
             bit.active = true
             return bit
+            end
         end
-    end
-    
+        
     -- If no inactive bits, create a new one (expand pool)
     local new_bit = {
         active = true,
@@ -210,9 +210,9 @@ function game.removeBitFromGrid(bit)
                     table.remove(grid_cell, i)
                     break
                 end
-            end
         end
-        
+    end
+    
         bit.grid_key = nil
     end
 end
@@ -232,9 +232,9 @@ function game.updateBitGridPosition(bit)
         end
         
         table.insert(game.grid[new_key], bit)
+        end
     end
-end
-
+    
 -- Get nearby bits from the grid (adjacent cells)
 function game.getNearbyBits(bit)
     local nearby_bits = {}
@@ -252,8 +252,8 @@ function game.getNearbyBits(bit)
                         table.insert(nearby_bits, other_bit)
                     end
                 end
-            end
         end
+    end
     end
     
     return nearby_bits
@@ -329,7 +329,7 @@ function game.load()
     game.resource_feedback = {}
     
     -- Initialize world entities
-    initializeWorld()
+    game.initialize()
     
     -- Initialize resource particle systems
     local particle_img = love.graphics.newCanvas(4, 4)
@@ -743,46 +743,46 @@ function game.update(dt)
     game.grid = {}
     
     -- First pass: update positions and add to grid
-    for i, bit in ipairs(game.resource_bits) do
+                        for i, bit in ipairs(game.resource_bits) do
         if bit.active then
             -- Apply gravity
-            if not bit.grounded then
+        if not bit.grounded then
                 bit.vy = bit.vy + 500 * dt
-            end
-            
-            -- Update position
-            bit.x = bit.x + bit.vx * dt
-            bit.y = bit.y + bit.vy * dt
-            
+        end
+        
+        -- Update position
+        bit.x = bit.x + bit.vx * dt
+        bit.y = bit.y + bit.vy * dt
+        
             -- Add to spatial grid
             game.addBitToGrid(bit)
             
             -- Ground collision
-            if bit.y > game.GROUND_LEVEL - bit.size/2 then
-                bit.y = game.GROUND_LEVEL - bit.size/2
-                bit.vy = 0
+        if bit.y > game.GROUND_LEVEL - bit.size/2 then
+            bit.y = game.GROUND_LEVEL - bit.size/2
+            bit.vy = 0
                 bit.vx = bit.vx * 0.3
-                
-                if math.abs(bit.vx) < 5 then
-                    bit.vx = 0
-                    bit.grounded = true
-                end
-            end
             
-            -- Reset grounded flag if above ground
-            if bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
-                bit.grounded = false
+            if math.abs(bit.vx) < 5 then
+                bit.vx = 0
+                bit.grounded = true
             end
         end
-    end
-    
+        
+            -- Reset grounded flag if above ground
+        if bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
+            bit.grounded = false
+            end
+        end
+        end
+        
     -- Second pass: handle collisions using spatial grid
     for i = #game.resource_bits, 1, -1 do
         local bit = game.resource_bits[i]
         if bit.active then
-            local supporting_bits = 0
+        local supporting_bits = 0
             local nearby_bits = game.getNearbyBits(bit)
-            
+        
             for _, other_bit in ipairs(nearby_bits) do
                 local dx = bit.x - other_bit.x
                 local dy = bit.y - other_bit.y
@@ -824,43 +824,43 @@ function game.update(dt)
                             
                             if math.abs(bit.vx) < 10 and math.abs(bit.vy) < 20 then
                                 bit.grounded = true
-                            end
                         end
                     end
                 end
             end
-            
+        end
+        
             -- Bank collision check
-            if bit.moving_to_bank then
-                local bank = game.resource_banks[bit.type]
-                if bank then
-                    local dx = bank.x - bit.x
-                    local dy = bank.y - bit.y
-                    local dist = math.sqrt(dx*dx + dy*dy)
-                    
+        if bit.moving_to_bank then
+            local bank = game.resource_banks[bit.type]
+            if bank then
+                local dx = bank.x - bit.x
+                local dy = bank.y - bit.y
+                local dist = math.sqrt(dx*dx + dy*dy)
+                
                     if dist < 25 then
-                        -- Add to resource count
-                        game.resources_collected[bit.type] = game.resources_collected[bit.type] + 1
-                        
-                        -- Visual feedback
-                        table.insert(game.resource_feedback, {
-                            x = bit.x, 
-                            y = bit.y - 20,
-                            type = bit.type,
-                            amount = 1,
-                            time = 1.5
-                        })
-                        
-                        -- Add collection animation
-                        game.addCollectionAnimation(bit.x, bit.y, bit.type, 1)
-                        
+                    -- Add to resource count 
+                    game.resources_collected[bit.type] = game.resources_collected[bit.type] + 1
+                    
+                    -- Visual feedback
+                    table.insert(game.resource_feedback, {
+                        x = bit.x, 
+                        y = bit.y - 20,
+                        type = bit.type,
+                        amount = 1,
+                        time = 1.5
+                    })
+                    
+                    -- Add collection animation
+                    game.addCollectionAnimation(bit.x, bit.y, bit.type, 1)
+                    
                         -- Return bit to pool
                         game.releaseBitToPool(bit)
                         game.removeBitFromGrid(bit)
                         
                         -- Remove from active bits
-                        table.remove(game.resource_bits, i)
-                        
+                    table.remove(game.resource_bits, i)
+                    
                         log.debug("Added " .. bit.type .. " to inventory! Total: " .. game.resources_collected[bit.type])
                     end
                 end
