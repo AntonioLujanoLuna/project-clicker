@@ -320,9 +320,18 @@ function game.draw()
     game.drawResourceFeedback()
     
     -- Draw robots
-    for _, robot in ipairs(game.robots) do
-        local robot_type = robots.TYPES[robot.type]
-        robots.draw(robot, robot_type)
+    for _, robot in ipairs(game.world_entities.robots) do
+        -- Draw each robot
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.rectangle("fill", 
+            robot.x - robot.size/2, 
+            robot.y - robot.size/2, 
+            robot.size, robot.size)
+        
+        -- Draw robot type for debugging
+        love.graphics.setColor(0, 0, 0)
+        local type_initial = robot.type:sub(1,1)
+        love.graphics.print(type_initial, robot.x - 4, robot.y - 6)
     end
     
     -- Draw buildings
@@ -626,32 +635,37 @@ function game.update(dt)
     for i = #game.resource_bits, 1, -1 do
         local bit = game.resource_bits[i]
         
-        -- Apply gravity if not grounded - FIXED: Always apply gravity when not grounded
+        -- Always apply gravity unless explicitly grounded
         if not bit.grounded then
-            bit.vy = bit.vy + 400 * dt -- Stronger gravity for faster falling
+            bit.vy = bit.vy + 500 * dt -- Increased gravity
         end
         
         -- Update position
         bit.x = bit.x + bit.vx * dt
         bit.y = bit.y + bit.vy * dt
         
-        -- Reset collision state
-        bit.colliding_with = nil
-        
-        -- Check for ground collision - FIXED: Always check for ground collision
+        -- Check for ground collision
         if bit.y > game.GROUND_LEVEL - bit.size/2 then
             bit.y = game.GROUND_LEVEL - bit.size/2
-            bit.vy = 0 -- Stop vertical movement instead of bouncing
-            bit.vx = bit.vx * 0.3 -- Much stronger friction
+            bit.vy = 0
+            bit.vx = bit.vx * 0.3 -- Strong friction on ground
             
-            -- Lock position more aggressively when nearly stopped
-            if math.abs(bit.vx) < 10 then
+            -- More aggressive grounding - lower threshold
+            if math.abs(bit.vx) < 5 then
                 bit.vx = 0
                 bit.grounded = true
             end
         end
         
-        -- Improved collision handling for powder-like behavior
+        -- Reset grounded flag if bit is above ground level
+        if bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
+            bit.grounded = false
+        end
+        
+        -- Count how many bits are supporting this one
+        local supporting_bits = 0
+        
+        -- Improved collision handling
         for j, other_bit in ipairs(game.resource_bits) do
             if i ~= j then
                 local dx = bit.x - other_bit.x
@@ -659,44 +673,54 @@ function game.update(dt)
                 local distance = math.sqrt(dx*dx + dy*dy)
                 
                 -- If bits are very close (overlapping)
-                if distance < bit.size then
+                if distance < bit.size * 1.2 then -- Slightly increased collision distance
                     -- Calculate direction to push
                     local push_dx = dx
                     local push_dy = dy
                     
-                    -- Normalize direction vector
+                    -- Avoid division by zero
                     local push_length = math.sqrt(push_dx*push_dx + push_dy*push_dy)
-                    if push_length > 0 then
+                    if push_length > 0.001 then -- Added small threshold
                         push_dx = push_dx / push_length
                         push_dy = push_dy / push_length
+                    else
+                        -- If they're exactly at the same position, push in a random direction
+                        local angle = love.math.random() * math.pi * 2
+                        push_dx = math.cos(angle)
+                        push_dy = math.sin(angle)
                     end
                     
                     -- Calculate overlap
                     local overlap = bit.size - distance
+                    if overlap < 0 then overlap = 0 end
                     
-                    -- Resolve collision by pushing bits apart in both x and y
-                    bit.x = bit.x + push_dx * overlap * 0.5
-                    bit.y = bit.y + push_dy * overlap * 0.5
-                    other_bit.x = other_bit.x - push_dx * overlap * 0.5
-                    other_bit.y = other_bit.y - push_dy * overlap * 0.5
+                    -- Resolve collision
+                    bit.x = bit.x + push_dx * overlap * 0.6
+                    bit.y = bit.y + push_dy * overlap * 0.6
+                    other_bit.x = other_bit.x - push_dx * overlap * 0.6
+                    other_bit.y = other_bit.y - push_dy * overlap * 0.6
                     
-                    -- If this bit is above the other and moving down, stack it
-                    if dy < 0 and bit.vy > 0 then
-                        -- Reduce horizontal velocity more for better stacking
-                        bit.vx = bit.vx * 0.7
+                    -- If this bit is above the other and close enough, consider it supported
+                    if dy < -bit.size*0.5 and math.abs(dx) < bit.size*0.8 then
+                        supporting_bits = supporting_bits + 1
                         
-                        -- If the bit below is grounded, strongly reduce horizontal movement
+                        -- If the bit below is grounded, reduce horizontal movement
                         if other_bit.grounded then
-                            bit.vx = bit.vx * 0.5
+                            bit.vx = bit.vx * 0.4
                             
-                            -- Mark grounded if nearly stopped horizontally and very close to another bit
-                            if math.abs(bit.vx) < 15 and math.abs(dy) < bit.size * 0.8 then
+                            -- Ground this bit if it's very slow and supported by a grounded bit
+                            if math.abs(bit.vx) < 10 and math.abs(bit.vy) < 20 then
                                 bit.grounded = true
                             end
                         end
                     end
                 end
             end
+        end
+        
+        -- If this bit has no support and is not on the ground, unground it
+        if supporting_bits == 0 and bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
+            bit.grounded = false
         end
         
         -- Check for resource bank collision - improved to make interaction smoother
