@@ -626,9 +626,9 @@ function game.update(dt)
     for i = #game.resource_bits, 1, -1 do
         local bit = game.resource_bits[i]
         
-        -- Apply gravity if not grounded
-        if not bit.grounded and not bit.moving_to_bank then
-            bit.vy = bit.vy + 600 * dt -- Stronger gravity for faster falling
+        -- Apply gravity if not grounded - FIXED: Always apply gravity when not grounded
+        if not bit.grounded then
+            bit.vy = bit.vy + 400 * dt -- Stronger gravity for faster falling
         end
         
         -- Update position
@@ -638,11 +638,11 @@ function game.update(dt)
         -- Reset collision state
         bit.colliding_with = nil
         
-        -- Check for ground collision with much stronger friction
-        if bit.y > game.GROUND_LEVEL - bit.size/2 and not bit.moving_to_bank then
+        -- Check for ground collision - FIXED: Always check for ground collision
+        if bit.y > game.GROUND_LEVEL - bit.size/2 then
             bit.y = game.GROUND_LEVEL - bit.size/2
             bit.vy = 0 -- Stop vertical movement instead of bouncing
-            bit.vx = bit.vx * 0.3 -- Much stronger friction (was 0.8)
+            bit.vx = bit.vx * 0.3 -- Much stronger friction
             
             -- Lock position more aggressively when nearly stopped
             if math.abs(bit.vx) < 10 then
