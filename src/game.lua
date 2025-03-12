@@ -7,19 +7,20 @@ local buildings = require("src.buildings")
 local pollution = require("src.pollution")
 local ui = require("src.ui")
 local camera = require("src.camera")
+local config = require("src.config")
 
 local game = {}
 
 -- Game constants
-game.WORLD_WIDTH = 4000  -- Extended world size
-game.WORLD_HEIGHT = 1200
-game.GROUND_HEIGHT = 900 -- Height of the ground from bottom (changed to make ground 1/4, sky 3/4)
+game.WORLD_WIDTH = config.world.width
+game.WORLD_HEIGHT = config.world.height
+game.GROUND_HEIGHT = config.world.ground_height
 game.GROUND_LEVEL = game.GROUND_HEIGHT - game.WORLD_HEIGHT/2 -- Y coordinate of ground level
-game.HORIZON_LEVEL = game.GROUND_LEVEL - 200 -- Y coordinate of the horizon line
-game.SKY_COLOR = {0.1, 0.1, 0.1} -- Dark gray/black sky
-game.GROUND_COLOR = {0.1, 0.1, 0.1} -- Same dark color for ground
-game.UNDERGROUND_COLOR = {0.1, 0.1, 0.1} -- Same dark color for underground
-game.GRID_SIZE = 50 -- Size of grid cells
+game.HORIZON_LEVEL = config.world.horizon_level
+game.SKY_COLOR = config.world.sky_color
+game.GROUND_COLOR = config.world.ground_color
+game.UNDERGROUND_COLOR = config.world.underground_color
+game.GRID_SIZE = config.world.grid_size
 
 -- Game state
 game.resources = {}
@@ -107,7 +108,7 @@ game.resources_collected = {
 }
 
 -- Add to game state section
-game.AUTO_COLLECT_RADIUS = 150 -- Radius for auto-collection
+game.AUTO_COLLECT_RADIUS = config.collection.auto_collect_radius
 game.auto_collect_enabled = false -- Disable auto-collection by default
 game.auto_collect_cooldown = 0 -- Cooldown for auto-collection
 game.show_collect_radius = true -- Whether to show the collection radius
@@ -131,7 +132,7 @@ end
 local function initializeWorld()
     -- Add some random resources in the world
     local resource_types = {"wood", "stone", "food"}
-    local MIN_BANK_DISTANCE = 200 -- Minimum distance from any resource bank
+    local MIN_BANK_DISTANCE = config.resources.min_bank_distance
     
     -- Helper function to calculate max bits based on distance to nearest bank
     local function calculateMaxBits(x, y)
@@ -148,9 +149,12 @@ local function initializeWorld()
             end
         end
         
-        -- Base range: 20-30 bits for closest resources, 80-100 for furthest
-        local min_bits = 20
-        local max_bits = 80
+        -- Base range: min_bits for closest resources, max_bits for furthest
+        local min_bits, max_bits
+        local resource_type = "wood" -- Default to wood for the calculation
+        min_bits = config.resources.types[resource_type].bits.min
+        max_bits = config.resources.types[resource_type].bits.max
+        
         local world_diagonal = math.sqrt((game.WORLD_WIDTH/2)^2 + (game.WORLD_HEIGHT/2)^2)
         
         -- Calculate bits based on distance (normalized to world size)
@@ -165,7 +169,7 @@ local function initializeWorld()
     end
     
     -- Wood resources - placed on ground
-    for i = 1, 15 do
+    for i = 1, config.resources.initial.wood do
         local x
         local attempts = 0
         local max_attempts = 50 -- Prevent infinite loops
@@ -183,7 +187,7 @@ local function initializeWorld()
                 x = x,
                 y = game.GROUND_LEVEL, -- Place exactly on ground
                 type = "wood",
-                size = 30,
+                size = config.resources.types.wood.size,
                 max_bits = max_bits,
                 current_bits = max_bits -- Start with full bits
             })
@@ -191,7 +195,7 @@ local function initializeWorld()
     end
     
     -- Stone resources - placed on ground
-    for i = 1, 12 do
+    for i = 1, config.resources.initial.stone do
         local x
         local attempts = 0
         local max_attempts = 50
@@ -207,7 +211,7 @@ local function initializeWorld()
                 x = x,
                 y = game.GROUND_LEVEL,
                 type = "stone",
-                size = 25,
+                size = config.resources.types.stone.size,
                 max_bits = max_bits,
                 current_bits = max_bits -- Start with full bits
             })
@@ -215,7 +219,7 @@ local function initializeWorld()
     end
     
     -- Food resources - placed on ground
-    for i = 1, 10 do
+    for i = 1, config.resources.initial.food do
         local x
         local attempts = 0
         local max_attempts = 50
@@ -231,7 +235,7 @@ local function initializeWorld()
                 x = x,
                 y = game.GROUND_LEVEL,
                 type = "food",
-                size = 20,
+                size = config.resources.types.food.size,
                 max_bits = max_bits,
                 current_bits = max_bits -- Start with full bits
             })
@@ -268,9 +272,9 @@ function game.load()
     
     -- Create particle systems for each resource type
     local resource_colors = {
-        wood = {0.8, 0.6, 0.4},  -- Brown for wood
-        stone = {0.7, 0.7, 0.7}, -- Gray for stone
-        food = {0.5, 0.8, 0.3}   -- Green for food
+        wood = config.resources.types.wood.color,
+        stone = config.resources.types.stone.color,
+        food = config.resources.types.food.color
     }
     
     game.resource_particles = {}

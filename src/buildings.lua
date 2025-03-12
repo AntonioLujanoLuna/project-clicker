@@ -1,135 +1,12 @@
 -- project-clicker - Buildings Module
 -- Manages construction and production of buildings
 
+local config = require("src.config")
+
 local buildings = {}
 
 -- Building definitions with monochrome colors
-buildings.TYPES = {
-    LUMBER_MILL = {
-        name = "Lumber Mill",
-        description = "Automatically produces wood over time",
-        cost = {Wood = 50, Stone = 25},
-        production = {Wood = 0.5}, -- Resources per second
-        pollution = 5,             -- Pollution per minute
-        icon_color = {1, 1, 1}, -- White
-        x = 100,
-        y = 400,
-        width = 16,
-        height = 16,
-        pixels = {
-            {0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0},
-            {0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0},
-            {0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0},
-            {0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0},
-            {0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
-            {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,0,1,1,0,0,1,1,0,1,1,1,1,1},
-            {1,1,0,0,1,1,0,0,1,1,0,0,1,1,1,1},
-            {1,0,0,0,1,1,0,0,1,1,0,0,0,1,1,1},
-            {0,0,0,0,1,1,0,0,1,1,0,0,0,0,1,1}
-        },
-        accent_color = {0.8, 0.6, 0.4} -- Wood accent
-    },
-    QUARRY = {
-        name = "Quarry",
-        description = "Automatically produces stone over time",
-        cost = {Wood = 40, Stone = 40},
-        production = {Stone = 0.4},
-        pollution = 7,
-        icon_color = {1, 1, 1}, -- White
-        x = 200, 
-        y = 400,
-        width = 16,
-        height = 16,
-        pixels = {
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0},
-            {0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0},
-            {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-        },
-        accent_color = {0.7, 0.7, 0.7} -- Stone accent
-    },
-    FARM = {
-        name = "Farm",
-        description = "Automatically produces food over time",
-        cost = {Wood = 30, Stone = 20},
-        production = {Food = 0.3},
-        pollution = 2,
-        icon_color = {1, 1, 1}, -- White
-        x = 300,
-        y = 400,
-        width = 16,
-        height = 16,
-        pixels = {
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,1,0,0,1,0,0,1,0,0,0,0,0},
-            {0,0,0,0,1,1,0,1,1,0,1,1,0,0,0,0},
-            {0,0,0,0,0,1,0,0,1,0,0,1,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-        },
-        accent_color = {0, 1, 0} -- Green accent for crops
-    },
-    SOLAR_PANEL = {
-        name = "Solar Panel",
-        description = "Reduces pollution over time",
-        cost = {Wood = 20, Stone = 50},
-        production = {},
-        pollution = -10, -- Negative value means it reduces pollution
-        icon_color = {1, 1, 1}, -- White
-        x = 400,
-        y = 400,
-        width = 16,
-        height = 16,
-        pixels = {
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-            {0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0},
-            {0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0},
-            {0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
-            {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-            {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
-            {0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0},
-            {0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0},
-            {0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0}
-        },
-        accent_color = {0.2, 0.6, 1} -- Blue accent for solar
-    }
-}
+buildings.TYPES = {}
 
 -- Building instance list
 local building_instances = {}
@@ -160,7 +37,133 @@ local function drawPixelArt(pixels, x, y, scale, color, accent_color)
 end
 
 function buildings.load()
-    -- Load building assets if any
+    -- Load building types from config
+    buildings.TYPES = {
+        LUMBER_MILL = {
+            name = config.buildings.types.LUMBER_MILL.name,
+            description = config.buildings.types.LUMBER_MILL.description,
+            cost = config.buildings.types.LUMBER_MILL.cost,
+            production = config.buildings.types.LUMBER_MILL.production,
+            pollution = config.buildings.types.LUMBER_MILL.pollution,
+            icon_color = {1, 1, 1},
+            x = 100,
+            y = 400,
+            width = config.buildings.types.LUMBER_MILL.size,
+            height = config.buildings.types.LUMBER_MILL.size,
+            pixels = {
+                {0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0},
+                {0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0},
+                {0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0},
+                {0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0},
+                {0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
+                {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,0,1,1,0,0,1,1,0,1,1,1,1,1},
+                {1,1,0,0,1,1,0,0,1,1,0,0,1,1,1,1},
+                {1,0,0,0,1,1,0,0,1,1,0,0,0,1,1,1},
+                {0,0,0,0,1,1,0,0,1,1,0,0,0,0,1,1}
+            },
+            accent_color = config.resources.types.wood.color
+        },
+        QUARRY = {
+            name = config.buildings.types.QUARRY.name,
+            description = config.buildings.types.QUARRY.description,
+            cost = config.buildings.types.QUARRY.cost,
+            production = config.buildings.types.QUARRY.production,
+            pollution = config.buildings.types.QUARRY.pollution,
+            icon_color = {1, 1, 1},
+            x = 200, 
+            y = 400,
+            width = config.buildings.types.QUARRY.size,
+            height = config.buildings.types.QUARRY.size,
+            pixels = {
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0},
+                {0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0},
+                {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+            },
+            accent_color = config.resources.types.stone.color
+        },
+        FARM = {
+            name = config.buildings.types.FARM.name,
+            description = config.buildings.types.FARM.description,
+            cost = config.buildings.types.FARM.cost,
+            production = config.buildings.types.FARM.production,
+            pollution = config.buildings.types.FARM.pollution,
+            icon_color = {1, 1, 1},
+            x = 300,
+            y = 400,
+            width = config.buildings.types.FARM.size,
+            height = config.buildings.types.FARM.size,
+            pixels = {
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,1,0,0,1,0,0,1,0,0,0,0,0},
+                {0,0,0,0,1,1,0,1,1,0,1,1,0,0,0,0},
+                {0,0,0,0,0,1,0,0,1,0,0,1,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+            },
+            accent_color = config.resources.types.food.color
+        },
+        SOLAR_PANEL = {
+            name = config.buildings.types.SOLAR_PANEL.name,
+            description = config.buildings.types.SOLAR_PANEL.description,
+            cost = config.buildings.types.SOLAR_PANEL.cost,
+            production = config.buildings.types.SOLAR_PANEL.production,
+            pollution = config.buildings.types.SOLAR_PANEL.pollution,
+            icon_color = {1, 1, 1},
+            x = 400,
+            y = 400,
+            width = config.buildings.types.SOLAR_PANEL.size,
+            height = config.buildings.types.SOLAR_PANEL.size,
+            pixels = {
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+                {0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0},
+                {0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0},
+                {0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
+                {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
+                {0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0},
+                {0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0},
+                {0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0}
+            },
+            accent_color = {0.2, 0.6, 1} -- Blue accent for solar
+        }
+    }
     
     -- Add accent colors to the pixel art
     for type_key, building_type in pairs(buildings.TYPES) do

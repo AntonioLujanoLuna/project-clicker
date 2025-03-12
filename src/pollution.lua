@@ -1,18 +1,16 @@
 -- project-clicker - Pollution Module
 -- Manages pollution levels and effects
 
+local config = require("src.config")
+
 local pollution = {}
 
 -- Pollution constants
-local MAX_POLLUTION = 100
-local NATURAL_RECOVERY = 0.05 -- Natural pollution reduction per second
+local MAX_POLLUTION = config.pollution.max_level
+local NATURAL_RECOVERY = config.pollution.natural_recovery -- Natural pollution reduction per second
 
 -- Monochrome pollution colors
-pollution.COLORS = {
-    LOW = {1, 1, 1, 0.1},    -- White with very low opacity
-    MEDIUM = {1, 1, 1, 0.2}, -- White with medium opacity
-    HIGH = {1, 1, 1, 0.3}    -- White with higher opacity
-}
+pollution.COLORS = config.pollution.colors
 
 function pollution.load()
     -- Load pollution assets if any
@@ -41,9 +39,9 @@ function pollution.draw(pollution_level, camera_x, camera_y, screen_width, scree
     
     -- Determine pollution color based on level
     local color
-    if pollution_level < 30 then
+    if pollution_level < config.pollution.effects.thresholds[1] then
         color = pollution.COLORS.LOW
-    elseif pollution_level < 70 then
+    elseif pollution_level < config.pollution.effects.thresholds[2] then
         color = pollution.COLORS.MEDIUM
     else
         color = pollution.COLORS.HIGH
@@ -85,18 +83,18 @@ function pollution.getEffects(pollution_level)
     }
     
     -- Calculate penalties based on pollution levels
-    if pollution_level > 20 then
-        effects.resource_penalty = 0.1 -- 10% resource gathering penalty
+    if pollution_level > config.pollution.effects.thresholds[1] then
+        effects.resource_penalty = config.pollution.effects.resource_penalties[1]
     end
     
-    if pollution_level > 50 then
-        effects.resource_penalty = 0.3 -- 30% resource gathering penalty
-        effects.robot_penalty = 0.1 -- 10% robot efficiency penalty
+    if pollution_level > config.pollution.effects.thresholds[2] then
+        effects.resource_penalty = config.pollution.effects.resource_penalties[2]
+        effects.robot_penalty = config.pollution.effects.robot_penalties[2]
     end
     
-    if pollution_level > 80 then
-        effects.resource_penalty = 0.5 -- 50% resource gathering penalty
-        effects.robot_penalty = 0.3 -- 30% robot efficiency penalty
+    if pollution_level > config.pollution.effects.thresholds[3] then
+        effects.resource_penalty = config.pollution.effects.resource_penalties[3]
+        effects.robot_penalty = config.pollution.effects.robot_penalties[3]
     end
     
     return effects

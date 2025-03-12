@@ -1,21 +1,23 @@
 -- project-clicker - Robots Module
 -- Manages robot creation and behavior
 
+local config = require("src.config")
+
 local robots = {}
 
 -- Robot type definitions with monochrome colors
 robots.TYPES = {
     GATHERER = {
-        name = "Gatherer",
-        description = "Automatically gathers resources",
-        cost = {Wood = 50, Stone = 30},
-        gather_rate = 0.2, -- Resources per second
-        pollution = 1,     -- Pollution per minute
+        name = config.robots.types.GATHERER.name,
+        description = config.robots.types.GATHERER.description,
+        cost = config.robots.types.GATHERER.cost,
+        gather_rate = config.robots.types.GATHERER.gather_rate,
+        pollution = config.robots.types.GATHERER.pollution,
         color = {1, 1, 1}, -- White
         x = 500,
         y = 400,
-        width = 16,
-        height = 16,
+        width = config.robots.types.GATHERER.size,
+        height = config.robots.types.GATHERER.size,
         pixels = {
             {0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0},
             {0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0},
@@ -37,16 +39,16 @@ robots.TYPES = {
         accent_color = {0, 0.7, 1} -- Light blue accent for gatherer
     },
     TRANSPORTER = {
-        name = "Transporter",
-        description = "Increases resource gathering efficiency",
-        cost = {Wood = 30, Stone = 50},
-        efficiency_bonus = 0.1, -- 10% boost to gathering
-        pollution = 0.5,
+        name = config.robots.types.TRANSPORTER.name,
+        description = config.robots.types.TRANSPORTER.description,
+        cost = config.robots.types.TRANSPORTER.cost,
+        efficiency_bonus = config.robots.types.TRANSPORTER.efficiency_bonus,
+        pollution = config.robots.types.TRANSPORTER.pollution,
         color = {1, 1, 1}, -- White
         x = 550, 
         y = 400,
-        width = 16,
-        height = 16,
+        width = config.robots.types.TRANSPORTER.size,
+        height = config.robots.types.TRANSPORTER.size,
         pixels = {
             {0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0},
             {0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0},
@@ -68,16 +70,16 @@ robots.TYPES = {
         accent_color = {0, 1, 0} -- Green accent for transporter
     },
     RECYCLER = {
-        name = "Recycler",
-        description = "Reduces pollution from activities",
-        cost = {Wood = 70, Stone = 40},
-        pollution_reduction = 0.2, -- 20% reduction
-        pollution = 0.2,
+        name = config.robots.types.RECYCLER.name,
+        description = config.robots.types.RECYCLER.description,
+        cost = config.robots.types.RECYCLER.cost,
+        pollution_reduction = config.robots.types.RECYCLER.pollution_reduction,
+        pollution = config.robots.types.RECYCLER.pollution,
         color = {1, 1, 1}, -- White
         x = 600,
         y = 400,
-        width = 16,
-        height = 16,
+        width = config.robots.types.RECYCLER.size,
+        height = config.robots.types.RECYCLER.size,
         pixels = {
             {0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0},
             {0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0},

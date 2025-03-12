@@ -1,5 +1,7 @@
 -- Camera module for handling 2D world view
 
+local config = require("src.config")
+
 local camera = {
     x = 0,
     y = 0,
@@ -7,8 +9,8 @@ local camera = {
     drag = false,
     last_x = 0,
     last_y = 0,
-    min_scale = 0.5,
-    max_scale = 2.0,
+    min_scale = config.camera.min_scale,
+    max_scale = config.camera.max_scale,
     -- World boundaries
     world_width = 0,
     world_height = 0,
@@ -18,13 +20,13 @@ local camera = {
     target_x = 0,
     target_y = 0,
     target_scale = 1,
-    smooth_factor = 5, -- Higher = smoother but slower
+    smooth_factor = config.camera.smooth_factor, -- Higher = smoother but slower
     -- Edge scrolling
     edge_scroll_enabled = true,
-    edge_scroll_margin = 30,
-    edge_scroll_speed = 300,
+    edge_scroll_margin = config.camera.edge_scroll_margin,
+    edge_scroll_speed = config.camera.edge_scroll_speed,
     -- Key scrolling
-    key_scroll_speed = 300  -- Speed for keyboard scrolling (pixels per second)
+    key_scroll_speed = config.camera.key_scroll_speed  -- Speed for keyboard scrolling (pixels per second)
 }
 
 -- Set the ground level in world coordinates
@@ -60,7 +62,7 @@ function camera.calculateZoomLimits()
     local min_scale = math.max(min_width_scale, min_height_scale)
     
     -- We want to be able to zoom in enough to see details
-    local max_scale = 2.0
+    local max_scale = config.camera.max_scale
     
     -- Set the limits
     camera.min_scale = min_scale

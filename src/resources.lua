@@ -1,37 +1,39 @@
 -- project-clicker - Resources Module
 -- Manages resources like wood, stone, food, etc.
 
+local config = require("src.config")
+
 local resources = {}
 resources.last_click_pollution = nil  -- Track pollution from last click
 
 -- Resource definitions with monochrome colors
 resources.TYPES = {
     WOOD = {
-        name = "Wood",
-        color = {0.8, 0.6, 0.4}, -- Brown for wood
+        name = config.resources.types.wood.name,
+        color = config.resources.types.wood.color,
         x = 100,
         y = 300,
-        click_value = 1, -- How much is gained per click
-        pollution_per_click = 0.1, -- How much pollution is generated per click
-        size = 30 -- Size of the square
+        click_value = config.resources.types.wood.click_value,
+        pollution_per_click = config.resources.types.wood.pollution_per_click,
+        size = config.resources.types.wood.size
     },
     STONE = {
-        name = "Stone",
-        color = {0.7, 0.7, 0.7}, -- Gray for stone
+        name = config.resources.types.stone.name,
+        color = config.resources.types.stone.color,
         x = 250, 
         y = 300,
-        click_value = 1,
-        pollution_per_click = 0.2,
-        size = 30 -- Size of the square
+        click_value = config.resources.types.stone.click_value,
+        pollution_per_click = config.resources.types.stone.pollution_per_click,
+        size = config.resources.types.stone.size
     },
     FOOD = {
-        name = "Food",
-        color = {0.5, 0.8, 0.3}, -- Green for food
+        name = config.resources.types.food.name,
+        color = config.resources.types.food.color,
         x = 400,
         y = 300,
-        click_value = 1,
-        pollution_per_click = 0.05,
-        size = 30 -- Size of the square
+        click_value = config.resources.types.food.click_value,
+        pollution_per_click = config.resources.types.food.pollution_per_click,
+        size = config.resources.types.food.size
     }
 }
 
