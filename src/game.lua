@@ -1321,23 +1321,16 @@ function game.initialize()
         food = 0
     }
     
-    -- Generate initial resources
-    for i = 1, 10 do
-        table.insert(game.resources.wood, {
-            x = math.random(-game.WORLD_WIDTH/2, game.WORLD_WIDTH/2),
-            y = game.GROUND_LEVEL - math.random(10, 30)
-        })
-        
-        table.insert(game.resources.stone, {
-            x = math.random(-game.WORLD_WIDTH/2, game.WORLD_WIDTH/2),
-            y = game.GROUND_LEVEL - math.random(10, 30)
-        })
-        
-        table.insert(game.resources.food, {
-            x = math.random(-game.WORLD_WIDTH/2, game.WORLD_WIDTH/2),
-            y = game.GROUND_LEVEL - math.random(10, 30)
-        })
+    -- Initialize world_entities if it doesn't exist
+    if not game.world_entities then
+        game.world_entities = {
+            resources = {},
+            robots = {}
+        }
     end
+    
+    -- Generate initial resources
+    game.generateResources()
 end
 
 -- Draw resource feedback (floating text)
@@ -1607,6 +1600,45 @@ function game.loadGame()
     
     log.info("Game loaded successfully")
     return true, "Game loaded successfully."
+end
+
+-- Function to generate resources in the world
+function game.generateResources()
+    log.info("Generating resources...")
+    
+    -- Clear existing resources
+    game.world_entities.resources = {}
+    
+    -- Generate resources with proper properties
+    local resource_types = {"wood", "stone", "food"}
+    for _, resource_type in ipairs(resource_types) do
+        -- Get configuration for this resource type
+        local resource_config = config.resources.types[resource_type]
+        local size = resource_config and resource_config.size or 20
+        local min_bits = resource_config and resource_config.bits and resource_config.bits.min or 30
+        local max_bits = resource_config and resource_config.bits and resource_config.bits.max or 50
+        
+        -- Create 10 resources of each type
+        for i = 1, 10 do
+            local x = math.random(-game.WORLD_WIDTH/2, game.WORLD_WIDTH/2)
+            local y = game.GROUND_LEVEL - math.random(10, 30)
+            
+            -- Calculate max bits (random value between min and max)
+            local resource_max_bits = math.floor(min_bits + math.random() * (max_bits - min_bits))
+            
+            -- Create the resource with all required properties
+            table.insert(game.world_entities.resources, {
+                x = x,
+                y = y,
+                type = resource_type,
+                size = size,
+                max_bits = resource_max_bits,
+                current_bits = resource_max_bits
+            })
+        end
+    end
+    
+    log.info("Generated " .. #game.world_entities.resources .. " resources")
 end
 
 return game 
