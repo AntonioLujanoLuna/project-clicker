@@ -171,89 +171,99 @@ end
 
 -- Release a bit back to the pool
 function game.releaseBitToPool(bit)
-    bit.active = false
-    bit.x = 0
-    bit.y = 0
-    bit.type = ""
-    bit.size = 0
-    bit.vx = 0
-    bit.vy = 0
-    bit.grounded = false
-    bit.colliding_with = nil
-    bit.moving_to_bank = false
-    bit.grid_key = nil
-    bit.creation_time = 0
+    if bit then
+        bit.active = false
+        bit.x = 0
+        bit.y = 0
+        bit.type = ""
+        bit.size = 0
+        bit.vx = 0
+        bit.vy = 0
+        bit.grounded = false
+        bit.moving_to_bank = false
+        bit.creation_time = 0
+    end
 end
 
--- Add a bit to the spatial grid
+-- Add a bit to the spatial grid for collision detection
 function game.addBitToGrid(bit)
-    local cell_x = math.floor(bit.x / game.cell_size)
-    local cell_y = math.floor(bit.y / game.cell_size)
-    local key = cell_x .. "," .. cell_y
+    -- Calculate grid cell coordinates
+    local cell_size = 20 -- Size of each grid cell
+    local grid_x = math.floor(bit.x / cell_size)
+    local grid_y = math.floor(bit.y / cell_size)
+    local cell_key = grid_x .. "," .. grid_y
     
-    if not game.grid[key] then
-        game.grid[key] = {}
+    -- Initialize grid cell if it doesn't exist
+    if not game.grid[cell_key] then
+        game.grid[cell_key] = {}
     end
     
-    table.insert(game.grid[key], bit)
-    bit.grid_key = key
+    -- Add bit to grid cell
+    table.insert(game.grid[cell_key], bit)
+    
+    -- Store grid position in bit for easy updates
+    bit.grid_cell = cell_key
+end
+
+-- Update a bit's position in the spatial grid
+function game.updateBitGridPosition(bit)
+    if bit.grid_cell then
+        -- Calculate new grid cell
+        local cell_size = 20
+        local grid_x = math.floor(bit.x / cell_size)
+        local grid_y = math.floor(bit.y / cell_size)
+        local new_cell_key = grid_x .. "," .. grid_y
+        
+        -- If cell changed, update grid
+        if new_cell_key ~= bit.grid_cell then
+            -- Remove from old cell
+            game.removeBitFromGrid(bit)
+            
+            -- Add to new cell
+            game.addBitToGrid(bit)
+        end
+    else
+        -- If bit doesn't have a grid cell, add it
+        game.addBitToGrid(bit)
+    end
 end
 
 -- Remove a bit from the spatial grid
 function game.removeBitFromGrid(bit)
-    if bit.grid_key then
-        local grid_cell = game.grid[bit.grid_key]
-        
-        if grid_cell then
-            for i, grid_bit in ipairs(grid_cell) do
-                if grid_bit == bit then
-                    table.remove(grid_cell, i)
-                    break
-                end
+    if bit.grid_cell and game.grid[bit.grid_cell] then
+        -- Find and remove bit from its grid cell
+        for i, grid_bit in ipairs(game.grid[bit.grid_cell]) do
+            if grid_bit == bit then
+                table.remove(game.grid[bit.grid_cell], i)
+                break
+            end
         end
-    end
-    
-        bit.grid_key = nil
+        
+        -- Clear grid cell reference
+        bit.grid_cell = nil
     end
 end
 
--- Update a bit's position in the grid
-function game.updateBitGridPosition(bit)
-    local new_cell_x = math.floor(bit.x / game.cell_size)
-    local new_cell_y = math.floor(bit.y / game.cell_size)
-    local new_key = new_cell_x .. "," .. new_cell_y
-    
-    if not bit.grid_key or bit.grid_key ~= new_key then
-        game.removeBitFromGrid(bit)
-        bit.grid_key = new_key
-        
-        if not game.grid[new_key] then
-            game.grid[new_key] = {}
-        end
-        
-        table.insert(game.grid[new_key], bit)
-        end
-    end
-    
--- Get nearby bits from the grid (adjacent cells)
+-- Get nearby bits for collision detection
 function game.getNearbyBits(bit)
     local nearby_bits = {}
-    local cell_x = math.floor(bit.x / game.cell_size)
-    local cell_y = math.floor(bit.y / game.cell_size)
+    local cell_size = 20
     
-    -- Check 9 cells (current cell and 8 neighbors)
-    for y = cell_y - 1, cell_y + 1 do
-        for x = cell_x - 1, cell_x + 1 do
-            local key = x .. "," .. y
+    -- Check current cell and 8 surrounding cells
+    for dx = -1, 1 do
+        for dy = -1, 1 do
+            local grid_x = math.floor(bit.x / cell_size) + dx
+            local grid_y = math.floor(bit.y / cell_size) + dy
+            local cell_key = grid_x .. "," .. grid_y
             
-            if game.grid[key] then
-                for _, other_bit in ipairs(game.grid[key]) do
+            if game.grid[cell_key] then
+                for _, other_bit in ipairs(game.grid[cell_key]) do
                     if other_bit ~= bit and other_bit.active then
                         table.insert(nearby_bits, other_bit)
                     end
                 end
+            end
         end
-    end
     end
     
     return nearby_bits
@@ -368,10 +378,13 @@ function game.load()
     resources.create_bits_callback = game.createResourceBit
     
     -- Initialize the bit pool
-    game.initializeBitPool()
+    game.initBitPool()
     
     -- Initialize the spatial grid
     game.grid = {}
+    game.cell_size = 20 -- Size of each grid cell
+    
+    log.info("Game module loaded successfully")
 end
 
 function game.draw()
@@ -1216,8 +1229,16 @@ end
 
 -- Check for resource clicks
 function game.checkResourceClicks(x, y)
+    -- Convert world coordinates to screen coordinates if needed
+    local screen_x, screen_y = x, y
+    
+    -- Check if these are world coordinates that need conversion
+    if camera.isWorldCoordinate(x, y) then
+        screen_x, screen_y = camera.worldToScreen(x, y)
+    end
+    
     -- Use resources.lua's click function to handle resource clicking
-    local pollution = resources.click(x, y, game.resources_collected, game.pollution_level, game.createResourceBit)
+    local pollution = resources.click(screen_x, screen_y, game.resources_collected, game.pollution_level, game.createResourceBit)
     
     if pollution > 0 then
         -- Handle pollution generation
@@ -1620,7 +1641,7 @@ function game.generateResources()
         
         -- Create 10 resources of each type
         for i = 1, 10 do
-            local x = math.random(-game.WORLD_WIDTH/2, game.WORLD_WIDTH/2)
+            local x = math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
             local y = game.GROUND_LEVEL - math.random(10, 30)
             
             -- Calculate max bits (random value between min and max)
@@ -1633,12 +1654,87 @@ function game.generateResources()
                 type = resource_type,
                 size = size,
                 max_bits = resource_max_bits,
-                current_bits = resource_max_bits
+                current_bits = resource_max_bits,
+                active = true
             })
         end
     end
     
     log.info("Generated " .. #game.world_entities.resources .. " resources")
+end
+
+-- Initialize the object pool for resource bits
+function game.initBitPool()
+    game.bit_pool = {}
+    game.pool_size = 1000
+    
+    -- Pre-allocate objects in the pool
+    for i = 1, game.pool_size do
+        game.bit_pool[i] = {
+            active = false,
+            x = 0,
+            y = 0,
+            type = "",
+            size = 0,
+            vx = 0,
+            vy = 0,
+            grounded = false,
+            moving_to_bank = false,
+            creation_time = 0
+        }
+    end
+    
+    log.info("Initialized resource bit pool with " .. game.pool_size .. " objects")
+end
+
+-- Get a bit from the object pool
+function game.getBitFromPool()
+    -- Initialize pool if it doesn't exist
+    if #game.bit_pool == 0 then
+        game.initBitPool()
+    end
+    
+    -- Find an inactive bit in the pool
+    for i = 1, #game.bit_pool do
+        if not game.bit_pool[i].active then
+            game.bit_pool[i].active = true
+            return game.bit_pool[i]
+        end
+    end
+    
+    -- If no inactive bits found, create a new one (expand pool)
+    local new_bit = {
+        active = true,
+        x = 0,
+        y = 0,
+        type = "",
+        size = 0,
+        vx = 0,
+        vy = 0,
+        grounded = false,
+        moving_to_bank = false,
+        creation_time = 0
+    }
+    table.insert(game.bit_pool, new_bit)
+    
+    log.debug("Expanded bit pool to " .. #game.bit_pool .. " objects")
+    return new_bit
+end
+
+-- Release a bit back to the pool
+function game.releaseBitToPool(bit)
+    if bit then
+        bit.active = false
+        bit.x = 0
+        bit.y = 0
+        bit.type = ""
+        bit.size = 0
+        bit.vx = 0
+        bit.vy = 0
+        bit.grounded = false
+        bit.moving_to_bank = false
+        bit.creation_time = 0
+    end
 end
 
 return game 

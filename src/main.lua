@@ -147,8 +147,10 @@ function love.mousepressed(x, y, button)
                 return -- Resource bit handled the click
             end
             
-            -- Check resource clicks
-            if game.checkResourceClicks(wx, wy) then
+            -- Check resource clicks - IMPORTANT: Pass screen coordinates for UI resources
+            -- and world coordinates for world resources
+            if game.checkResourceClicks(x, y) then
+                -- Static resources in UI space were clicked
                 -- Play click sound
                 audio.playSound("click")
                 
@@ -156,6 +158,58 @@ function love.mousepressed(x, y, button)
                 tutorial.checkAction("click_wood")
                 
                 return -- Resource handled the click
+            end
+            
+            -- Check world resource clicks
+            for i, resource in ipairs(game.world_entities.resources) do
+                if wx >= resource.x - resource.size/2 and wx <= resource.x + resource.size/2 and
+                   wy >= resource.y - resource.size/2 and wy <= resource.y + resource.size/2 then
+                    
+                    -- If resource has bits, generate them
+                    if resource.current_bits and resource.current_bits > 0 then
+                        -- Generate bits directly
+                        local bits_to_generate = math.min(15, resource.current_bits)
+                        
+                        for j = 1, bits_to_generate do
+                            local bit = game.getBitFromPool() -- Use object pool
+                            if bit then
+                                bit.x = resource.x + love.math.random(-20, 20)
+                                bit.y = resource.y - love.math.random(5, 15)
+                                bit.type = resource.type
+                                bit.size = 3
+                                bit.vx = love.math.random(-30, 30)
+                                bit.vy = -love.math.random(100, 200)
+                                bit.grounded = false
+                                bit.moving_to_bank = false
+                                bit.creation_time = love.timer.getTime()
+                                bit.active = true
+                                
+                                table.insert(game.resource_bits, bit)
+                            end
+                        end
+                        
+                        -- Update resource
+                        resource.current_bits = resource.current_bits - bits_to_generate
+                        
+                        -- Generate pollution
+                        game.pollution_level = game.pollution_level + 
+                          config.resources.types[resource.type].pollution_per_click
+                        
+                        -- Play sound and show particles
+                        audio.playSound("click")
+                        
+                        -- Visual feedback
+                        if game.resource_particles[resource.type] then
+                            game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
+                            game.resource_particles[resource.type]:emit(20)
+                        end
+                        
+                        -- Check tutorial action
+                        tutorial.checkAction("click_wood")
+                        
+                        return true
+                    end
+                end
             end
         end
     end)

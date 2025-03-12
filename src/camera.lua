@@ -248,4 +248,14 @@ function camera.getPosition()
     return camera.x, camera.y
 end
 
+-- Helper function to determine if coordinates are likely world coordinates
+function camera.isWorldCoordinate(x, y)
+    -- Check if coordinates are within typical world bounds
+    -- This is a heuristic - world coordinates are typically much smaller than screen coordinates
+    local screen_width, screen_height = love.graphics.getDimensions()
+    
+    -- If coordinates are well outside screen dimensions, they're likely world coordinates
+    return math.abs(x) < screen_width/2 and math.abs(y) < screen_height/2
+end
+
 return camera 
