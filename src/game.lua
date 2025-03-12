@@ -638,58 +638,68 @@ function game.update(dt)
         -- Reset collision state
         bit.colliding_with = nil
         
-        -- Check for ground collision
+        -- Check for ground collision with much stronger friction
         if bit.y > game.GROUND_LEVEL - bit.size/2 and not bit.moving_to_bank then
             bit.y = game.GROUND_LEVEL - bit.size/2
             bit.vy = 0 -- Stop vertical movement instead of bouncing
-            bit.vx = bit.vx * 0.8 -- Apply friction
+            bit.vx = bit.vx * 0.3 -- Much stronger friction (was 0.8)
             
-            -- Check if almost stopped
-            if math.abs(bit.vx) < 5 then
+            -- Lock position more aggressively when nearly stopped
+            if math.abs(bit.vx) < 10 then
                 bit.vx = 0
                 bit.grounded = true
             end
         end
         
-        -- Simplified collision handling for powder-like behavior
+        -- Improved collision handling for powder-like behavior
         for j, other_bit in ipairs(game.resource_bits) do
             if i ~= j then
-                -- Simple grid-based collision for powder-like behavior
-                local dx = math.abs(bit.x - other_bit.x)
-                local dy = math.abs(bit.y - other_bit.y)
+                local dx = bit.x - other_bit.x
+                local dy = bit.y - other_bit.y
+                local distance = math.sqrt(dx*dx + dy*dy)
                 
                 -- If bits are very close (overlapping)
-                if dx < bit.size and dy < bit.size then
-                    -- Resolve collision by pushing bits apart slightly
-                    if bit.x < other_bit.x then
-                        bit.x = bit.x - 1
-                        other_bit.x = other_bit.x + 1
-                    else
-                        bit.x = bit.x + 1
-                        other_bit.x = other_bit.x - 1
+                if distance < bit.size then
+                    -- Calculate direction to push
+                    local push_dx = dx
+                    local push_dy = dy
+                    
+                    -- Normalize direction vector
+                    local push_length = math.sqrt(push_dx*push_dx + push_dy*push_dy)
+                    if push_length > 0 then
+                        push_dx = push_dx / push_length
+                        push_dy = push_dy / push_length
                     end
                     
-                    -- If this bit is above the other, let it rest on top
-                    if bit.y < other_bit.y and bit.vy > 0 then
-                        bit.y = other_bit.y - bit.size
-                        bit.vy = 0
-                        bit.vx = bit.vx * 0.9 -- Apply friction
+                    -- Calculate overlap
+                    local overlap = bit.size - distance
+                    
+                    -- Resolve collision by pushing bits apart in both x and y
+                    bit.x = bit.x + push_dx * overlap * 0.5
+                    bit.y = bit.y + push_dy * overlap * 0.5
+                    other_bit.x = other_bit.x - push_dx * overlap * 0.5
+                    other_bit.y = other_bit.y - push_dy * overlap * 0.5
+                    
+                    -- If this bit is above the other and moving down, stack it
+                    if dy < 0 and bit.vy > 0 then
+                        -- Reduce horizontal velocity more for better stacking
+                        bit.vx = bit.vx * 0.7
                         
-                        -- If the bit below is grounded, this one becomes grounded too
+                        -- If the bit below is grounded, strongly reduce horizontal movement
                         if other_bit.grounded then
-                            bit.grounded = true
-                        end
-                        
-                        -- If almost stopped while on top of another bit
-                        if math.abs(bit.vx) < 5 then
-                            bit.vx = 0
+                            bit.vx = bit.vx * 0.5
+                            
+                            -- Mark grounded if nearly stopped horizontally and very close to another bit
+                            if math.abs(bit.vx) < 15 and math.abs(dy) < bit.size * 0.8 then
+                                bit.grounded = true
+                            end
                         end
                     end
                 end
             end
         end
         
-        -- Check for resource bank collision
+        -- Check for resource bank collision - improved to make interaction smoother
         if bit.moving_to_bank then
             local bank = game.resource_banks[bit.type]
             if bank then
@@ -698,36 +708,39 @@ function game.update(dt)
                 local dist = math.sqrt(dx*dx + dy*dy)
                 
                 -- If very close to bank, collect the resource
-                if dist < 20 then
-                    -- Add to resource count
+                if dist < 25 then -- Slightly larger collection radius (was 20)
+                    -- Add to resource count 
                     game.resources_collected[bit.type] = game.resources_collected[bit.type] + 1
                     
                     -- Visual feedback
                     table.insert(game.resource_feedback, {
-                        x = bit.x,
+                        x = bit.x, 
                         y = bit.y - 20,
                         type = bit.type,
                         amount = 1,
                         time = 1.5
                     })
                     
+                    -- Add collection animation
+                    game.addCollectionAnimation(bit.x, bit.y, bit.type, 1)
+                    
                     -- Remove the bit
                     table.remove(game.resource_bits, i)
                     
                     -- Debug output
                     print("Added " .. bit.type .. " to inventory! Total: " .. game.resources_collected[bit.type])
-                -- If bit has landed but is still not close enough to bank, make it jump again
+                -- If bit has landed but is still not close enough to bank, make it jump again with better physics
                 elseif bit.grounded and math.abs(dx) > 20 then
                     -- Calculate direction toward bank
                     local direction = dx > 0 and 1 or -1
                     local distance = math.abs(dx)
                     
                     -- Jump toward bank with a distance-based velocity
-                    local jump_strength = math.min(distance * 0.2, 200)
+                    local jump_strength = math.min(distance * 0.3, 250) -- Stronger jump
                     
-                    -- Proper jumping physics
-                    bit.vx = direction * jump_strength
-                    bit.vy = -250 -- Stronger upward velocity for a more pronounced jump
+                    -- Better jumping physics with more consistent jumps
+                    bit.vx = direction * jump_strength 
+                    bit.vy = -300 - love.math.random(0, 50) -- Stronger upward velocity with slight randomization
                     bit.grounded = false
                     
                     -- Debug output
@@ -790,35 +803,63 @@ function game.mousepressed(x, y, button)
         
         -- Check if clicked on any resource bit
         for i, bit in ipairs(game.resource_bits) do
-            if wx >= bit.x - bit.size/2 and wx <= bit.x + bit.size/2 and
-               wy >= bit.y - bit.size/2 and wy <= bit.y + bit.size/2 then
+            if wx >= bit.x - bit.size*1.5 and wx <= bit.x + bit.size*1.5 and
+               wy >= bit.y - bit.size*1.5 and wy <= bit.y + bit.size*1.5 then
                 
-                -- Set the bit in motion toward its bank
-                local bank = game.resource_banks[bit.type]
-                if bank then
-                    -- Calculate direction toward bank
-                    local dx = bank.x - bit.x
-                    local distance = math.abs(dx)
-                    local direction = dx > 0 and 1 or -1
-                    
-                    -- Improved jumping physics
-                    -- Jump toward bank with a distance-based velocity
-                    local jump_strength = math.min(distance * 0.2, 200)
-                    
-                    bit.vx = direction * jump_strength
-                    bit.vy = -250 -- Stronger upward velocity for a more pronounced jump
-                    bit.grounded = false
-                    bit.moving_to_bank = true -- Now we set this flag when clicked
-                    
-                    -- Visual feedback - console
-                    print("Moving " .. bit.type .. " bit toward bank! Distance: " .. distance)
-                else
-                    -- Just give it a kick with improved physics
-                    bit.vx = love.math.random(-100, 100)
-                    bit.vy = -200 -- Upward velocity for jumping
-                    bit.grounded = false
+                -- Improve collision detection by making clickable area slightly larger
+                -- This makes it easier to click on tiny bits
+                
+                -- Get nearby bits too (powder behavior - clicking one affects neighbors)
+                local clicked_bits = {bit}
+                
+                -- Find nearby bits to also send toward bank (powder effect)
+                for j, other_bit in ipairs(game.resource_bits) do
+                    if i ~= j and bit.type == other_bit.type then
+                        local dx = bit.x - other_bit.x
+                        local dy = bit.y - other_bit.y
+                        local distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        -- If close enough, include in the clicked group
+                        if distance < bit.size * 4 then
+                            table.insert(clicked_bits, other_bit)
+                        end
+                    end
                 end
                 
+                -- Set all collected bits in motion toward the bank
+                for _, clicked_bit in ipairs(clicked_bits) do
+                    local bank = game.resource_banks[clicked_bit.type]
+                    if bank then
+                        -- Calculate direction toward bank
+                        local dx = bank.x - clicked_bit.x
+                        local dy = bank.y - clicked_bit.y
+                        local distance = math.sqrt(dx*dx + dy*dy)
+                        local direction = dx > 0 and 1 or -1
+                        
+                        -- Jump strength based on distance, but with more consistent behavior
+                        local jump_strength = math.min(distance * 0.25, 220)
+                        
+                        -- Apply slight randomization for natural look
+                        jump_strength = jump_strength + love.math.random(-20, 20)
+                        
+                        -- Improved jumping physics
+                        clicked_bit.vx = direction * jump_strength
+                        clicked_bit.vy = -300 - love.math.random(0, 50) -- Stronger upward velocity with slight randomization
+                        clicked_bit.grounded = false
+                        clicked_bit.moving_to_bank = true -- Set the flag to continue moving toward bank
+                        
+                        -- Add visual effect for clicked bits
+                        if game.resource_particles[clicked_bit.type] then
+                            game.resource_particles[clicked_bit.type]:setPosition(clicked_bit.x, clicked_bit.y)
+                            game.resource_particles[clicked_bit.type]:emit(5) -- Small emission to show click
+                        end
+                    end
+                end
+                
+                -- Visual feedback - console
+                print("Moving " .. #clicked_bits .. " " .. bit.type .. " bits toward bank!")
+                
+                -- Only process one click at a time
                 break
             end
         end
@@ -920,18 +961,35 @@ function game.createResourceBit(resource_type, x, y)
     -- Convert resource type to lowercase if needed
     resource_type = resource_type:lower()
     
-    -- Create multiple bits
-    for i = 1, 10 do -- More bits for a powder-like effect
+    -- Get the corresponding bank position for directional bias
+    local bank = game.resource_banks[resource_type]
+    local bank_direction = 0
+    
+    if bank then
+        -- Calculate rough direction to bank (will be subtle)
+        local dx = bank.x - x
+        bank_direction = dx > 0 and 1 or -1
+    end
+    
+    -- Create multiple bits - more for a better powder effect
+    for i = 1, 15 do
+        -- Calculate initial velocities with slight bias toward bank
+        local base_vx = love.math.random(-20, 20)
+        
+        -- Add subtle bias toward bank (stronger for bits that start with less horizontal velocity)
+        local bank_bias = bank_direction * love.math.random(5, 15)
+        
         local bit = {
-            x = x + love.math.random(-20, 20),
-            y = y - love.math.random(5, 15), -- Start slightly above the resource
+            x = x + love.math.random(-15, 15),
+            y = y - love.math.random(2, 10), -- Start slightly above the resource
             type = resource_type,
-            size = 4, -- Smaller size for powder-like appearance
-            vx = love.math.random(-30, 30), -- Less horizontal velocity
-            vy = -love.math.random(50, 100), -- Just a small initial upward velocity
+            size = 3, -- Slightly smaller for better powder appearance
+            vx = base_vx + bank_bias, -- Add bank direction bias
+            vy = -love.math.random(100, 200), -- Stronger upward velocity for better arc
             grounded = false, -- Whether the bit has landed on the ground
             colliding_with = nil, -- Track collisions with other bits
-            moving_to_bank = false -- Don't automatically move to bank
+            moving_to_bank = false, -- Don't automatically move to bank until clicked
+            creation_time = love.timer.getTime() -- Track creation time for potential effects
         }
         table.insert(game.resource_bits, bit)
     end
@@ -939,7 +997,7 @@ function game.createResourceBit(resource_type, x, y)
     -- Visual feedback - particles
     if game.resource_particles[resource_type] then
         game.resource_particles[resource_type]:setPosition(x, y)
-        game.resource_particles[resource_type]:emit(15)
+        game.resource_particles[resource_type]:emit(20) -- More particles for better effect
     end
     
     -- Visual feedback - console
