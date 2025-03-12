@@ -8,6 +8,9 @@ local pollution = require("src.pollution")
 local ui = require("src.ui")
 local camera = require("src.camera")
 local config = require("src.config")
+local log = require("src.log")
+local json = require("lib.json")
+local utils = require("src.utils")
 
 local game = {}
 
@@ -84,6 +87,19 @@ game.show_collect_radius = true -- Whether to show the collection radius
 game.radius_pulse = 0 -- For pulsing effect
 game.last_collect_time = 0 -- To track when resources were last collected
 
+-- Save/load system
+game.save_version = "0.1.0" -- For future compatibility checks
+game.auto_save_interval = 300 -- 5 minutes in seconds
+game.last_auto_save = 0
+
+-- Object pooling for resource bits
+game.bit_pool = {}
+game.pool_size = 1000
+
+-- Grid-based spatial partitioning for collision detection
+game.grid = {}
+game.cell_size = 20 -- Size of each grid cell
+
 -- Add this function to check if a position is too close to any resource bank
 local function isTooCloseToBank(x, y, min_distance)
     for _, bank in pairs(game.resource_banks) do
@@ -98,118 +114,149 @@ local function isTooCloseToBank(x, y, min_distance)
     return false -- Not too close to any bank
 end
 
-local function initializeWorld()
-    -- Add some random resources in the world
-    local resource_types = {"wood", "stone", "food"}
-    local MIN_BANK_DISTANCE = config.resources.min_bank_distance
+-- Initialize object pool for resource bits
+function game.initializeBitPool()
+    log.info("Initializing resource bit pool with " .. game.pool_size .. " objects")
     
-    -- Helper function to calculate max bits based on distance to nearest bank
-    local function calculateMaxBits(x, y)
-        local min_distance = math.huge
+    -- Pre-create objects for the pool
+    for i = 1, game.pool_size do
+        table.insert(game.bit_pool, {
+            active = false,
+            x = 0,
+            y = 0,
+            type = "",
+            size = 0,
+            vx = 0,
+            vy = 0,
+            grounded = false,
+            colliding_with = nil,
+            moving_to_bank = false,
+            grid_key = nil,
+            creation_time = 0
+        })
+    end
+end
+
+-- Get a bit from the pool
+function game.getBitFromPool()
+    -- Find an inactive bit
+    for i, bit in ipairs(game.bit_pool) do
+        if not bit.active then
+            bit.active = true
+            return bit
+        end
+    end
+    
+    -- If no inactive bits, create a new one (expand pool)
+    local new_bit = {
+        active = true,
+        x = 0,
+        y = 0,
+        type = "",
+        size = 0,
+        vx = 0,
+        vy = 0,
+        grounded = false,
+        colliding_with = nil,
+        moving_to_bank = false,
+        grid_key = nil,
+        creation_time = 0
+    }
+    
+    table.insert(game.bit_pool, new_bit)
+    log.info("Expanded bit pool to " .. #game.bit_pool)
+    
+    return new_bit
+end
+
+-- Release a bit back to the pool
+function game.releaseBitToPool(bit)
+    bit.active = false
+    bit.x = 0
+    bit.y = 0
+    bit.type = ""
+    bit.size = 0
+    bit.vx = 0
+    bit.vy = 0
+    bit.grounded = false
+    bit.colliding_with = nil
+    bit.moving_to_bank = false
+    bit.grid_key = nil
+    bit.creation_time = 0
+end
+
+-- Add a bit to the spatial grid
+function game.addBitToGrid(bit)
+    local cell_x = math.floor(bit.x / game.cell_size)
+    local cell_y = math.floor(bit.y / game.cell_size)
+    local key = cell_x .. "," .. cell_y
+    
+    if not game.grid[key] then
+        game.grid[key] = {}
+    end
+    
+    table.insert(game.grid[key], bit)
+    bit.grid_key = key
+end
+
+-- Remove a bit from the spatial grid
+function game.removeBitFromGrid(bit)
+    if bit.grid_key then
+        local grid_cell = game.grid[bit.grid_key]
         
-        -- Find the nearest bank
-        for _, bank in pairs(game.resource_banks) do
-            local dx = bank.x - x
-            local dy = bank.y - y
-            local distance = math.sqrt(dx*dx + dy*dy)
-            
-            if distance < min_distance then
-                min_distance = distance
+        if grid_cell then
+            for i, grid_bit in ipairs(grid_cell) do
+                if grid_bit == bit then
+                    table.remove(grid_cell, i)
+                    break
+                end
             end
         end
         
-        -- Base range: min_bits for closest resources, max_bits for furthest
-        local min_bits, max_bits
-        local resource_type = "wood" -- Default to wood for the calculation
-        min_bits = config.resources.types[resource_type].bits.min
-        max_bits = config.resources.types[resource_type].bits.max
-        
-        local world_diagonal = math.sqrt((game.WORLD_WIDTH/2)^2 + (game.WORLD_HEIGHT/2)^2)
-        
-        -- Calculate bits based on distance (normalized to world size)
-        local distance_factor = math.min(min_distance / world_diagonal, 1)
-        local base_bits = min_bits + distance_factor * (max_bits - min_bits)
-        
-        -- Add randomization (+/- 20%)
-        local random_factor = 0.8 + love.math.random() * 0.4 -- 0.8 to 1.2
-        local bits = math.floor(base_bits * random_factor)
-        
-        return bits
+        bit.grid_key = nil
     end
+end
+
+-- Update a bit's position in the grid
+function game.updateBitGridPosition(bit)
+    local new_cell_x = math.floor(bit.x / game.cell_size)
+    local new_cell_y = math.floor(bit.y / game.cell_size)
+    local new_key = new_cell_x .. "," .. new_cell_y
     
-    -- Wood resources - placed on ground
-    for i = 1, config.resources.initial.wood do
-        local x
-        local attempts = 0
-        local max_attempts = 50 -- Prevent infinite loops
+    if not bit.grid_key or bit.grid_key ~= new_key then
+        game.removeBitFromGrid(bit)
+        bit.grid_key = new_key
         
-        -- Keep trying positions until we find one that's not too close to banks
-        repeat
-            x = love.math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
-            attempts = attempts + 1
-        until (not isTooCloseToBank(x, game.GROUND_LEVEL, MIN_BANK_DISTANCE)) or (attempts >= max_attempts)
+        if not game.grid[new_key] then
+            game.grid[new_key] = {}
+        end
         
-        -- Only add the resource if we found a suitable position
-        if attempts < max_attempts then
-            local max_bits = calculateMaxBits(x, game.GROUND_LEVEL)
-            table.insert(game.world_entities.resources, {
-                x = x,
-                y = game.GROUND_LEVEL, -- Place exactly on ground
-                type = "wood",
-                size = config.resources.types.wood.size,
-                max_bits = max_bits,
-                current_bits = max_bits -- Start with full bits
-            })
+        table.insert(game.grid[new_key], bit)
+    end
+end
+
+-- Get nearby bits from the grid (adjacent cells)
+function game.getNearbyBits(bit)
+    local nearby_bits = {}
+    local cell_x = math.floor(bit.x / game.cell_size)
+    local cell_y = math.floor(bit.y / game.cell_size)
+    
+    -- Check 9 cells (current cell and 8 neighbors)
+    for y = cell_y - 1, cell_y + 1 do
+        for x = cell_x - 1, cell_x + 1 do
+            local key = x .. "," .. y
+            
+            if game.grid[key] then
+                for _, other_bit in ipairs(game.grid[key]) do
+                    if other_bit ~= bit and other_bit.active then
+                        table.insert(nearby_bits, other_bit)
+                    end
+                end
+            end
         end
     end
     
-    -- Stone resources - placed on ground
-    for i = 1, config.resources.initial.stone do
-        local x
-        local attempts = 0
-        local max_attempts = 50
-        
-        repeat
-            x = love.math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
-            attempts = attempts + 1
-        until (not isTooCloseToBank(x, game.GROUND_LEVEL, MIN_BANK_DISTANCE)) or (attempts >= max_attempts)
-        
-        if attempts < max_attempts then
-            local max_bits = calculateMaxBits(x, game.GROUND_LEVEL)
-            table.insert(game.world_entities.resources, {
-                x = x,
-                y = game.GROUND_LEVEL,
-                type = "stone",
-                size = config.resources.types.stone.size,
-                max_bits = max_bits,
-                current_bits = max_bits -- Start with full bits
-            })
-        end
-    end
-    
-    -- Food resources - placed on ground
-    for i = 1, config.resources.initial.food do
-        local x
-        local attempts = 0
-        local max_attempts = 50
-        
-        repeat
-            x = love.math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
-            attempts = attempts + 1
-        until (not isTooCloseToBank(x, game.GROUND_LEVEL, MIN_BANK_DISTANCE)) or (attempts >= max_attempts)
-        
-        if attempts < max_attempts then
-            local max_bits = calculateMaxBits(x, game.GROUND_LEVEL)
-            table.insert(game.world_entities.resources, {
-                x = x,
-                y = game.GROUND_LEVEL,
-                type = "food",
-                size = config.resources.types.food.size,
-                max_bits = max_bits,
-                current_bits = max_bits -- Start with full bits
-            })
-        end
-    end
+    return nearby_bits
 end
 
 function game.load()
@@ -319,6 +366,12 @@ function game.load()
     
     -- Connect resources.lua with game.lua
     resources.create_bits_callback = game.createResourceBit
+    
+    -- Initialize the bit pool
+    game.initializeBitPool()
+    
+    -- Initialize the spatial grid
+    game.grid = {}
 end
 
 function game.draw()
@@ -674,294 +727,101 @@ function game.update(dt)
         end
     end
     
-    -- Update robots
-    for _, robot in ipairs(game.world_entities.robots) do
-        -- Initialize robot state if not set
-        if not robot.state then
-            robot.state = "idle"
-            robot.cooldown = 0
-            robot.target_x = robot.x
-            robot.target_y = robot.y
+    -- Auto-save
+    game.last_auto_save = game.last_auto_save + dt
+    if game.last_auto_save >= game.auto_save_interval then
+        local success, message = game.saveGame()
+        if success then
+            log.info("Auto-saved game.")
+        else
+            log.error("Auto-save failed: " .. message)
         end
-        
-        -- Robot behavior based on type
-        if robot.type == "GATHERER" then
-            -- Gatherer robot behavior
-            if robot.state == "idle" then
-                -- Find a random resource to gather and stay there
-                if #game.world_entities.resources > 0 then
-                    local target_resource = game.world_entities.resources[love.math.random(1, #game.world_entities.resources)]
-                    robot.target_x = target_resource.x
-                    robot.target_resource = target_resource
-                    robot.state = "moving"
-                end
-            elseif robot.state == "moving" then
-                -- Move toward target resource
-                local dx = robot.target_x - robot.x
-                local speed = 50 * dt -- Movement speed
-                
-                if math.abs(dx) < speed then
-                    -- Reached target resource - stay there permanently
-                    robot.x = robot.target_x
-                    robot.state = "gathering"
-                    robot.cooldown = 2 -- Gathering takes 2 seconds
-                else
-                    -- Move toward target
-                    robot.x = robot.x + (dx > 0 and speed or -speed)
-                end
-            elseif robot.state == "gathering" then
-                -- Gathering resource
-                robot.cooldown = robot.cooldown - dt
-                
-                if robot.cooldown <= 0 then
-                    -- Check if the target resource still exists and has bits available
-                    local resource_still_valid = false
-                    
-                    if robot.target_resource then
-                        -- Check if this resource is still in the world_entities
-                        for i, resource in ipairs(game.world_entities.resources) do
-                            if resource == robot.target_resource then
-                                resource_still_valid = true
-                                
-                                -- Check if resource has bits left
-                                if resource.current_bits and resource.current_bits > 0 then
-                                    -- Decrement the resource's bits
-                                    resource.current_bits = resource.current_bits - 1
-                                    
-                                    -- Create resource bits directly above the gatherer
-                                    local bit = {
-                                        x = robot.x,
-                                        y = robot.y - 20, -- Place bit above the robot
-                                        type = robot.target_resource.type,
-                                        size = 4, -- Smaller size for powder-like appearance
-                                        vx = 0, -- No horizontal velocity initially
-                                        vy = 0, -- No vertical velocity initially
-                                        grounded = false,
-                                        colliding_with = nil, -- Track collisions with other bits
-                                        gathered_by_robot = true -- Mark as gathered by robot
-                                    }
-                                    table.insert(game.resource_bits, bit)
-                                    
-                                    -- Visual feedback
-                                    game.resource_particles[robot.target_resource.type]:setPosition(
-                                        robot.x, 
-                                        robot.y - 20)
-                                    game.resource_particles[robot.target_resource.type]:emit(3)
-                                    
-                                    -- If resource is depleted, remove it
-                                    if resource.current_bits <= 0 then
-                                        -- Special visual effect for depleted resource
-                                        game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
-                                        game.resource_particles[resource.type]:emit(30) -- More particles for depletion effect
-                                        
-                                        -- Remove the resource
-                                        table.remove(game.world_entities.resources, i)
-                                        
-                                        -- Visual feedback - console
-                                        print(resource.type .. " resource depleted by robot!")
-                                        
-                                        -- Set robot back to idle
-                                        robot.state = "idle"
-                                        robot.target_resource = nil
-                                        resource_still_valid = false
-                                        break
-                                    end
-                                else
-                                    -- Resource is depleted, set robot back to idle
-                                    robot.state = "idle"
-                                    robot.target_resource = nil
-                                    resource_still_valid = false
-                                end
-                                
-                                break
-                            end
-                        end
-                    end
-                    
-                    -- If resource is no longer valid, go back to idle
-                    if not resource_still_valid then
-                        robot.state = "idle"
-                        robot.target_resource = nil
-                    else
-                        -- Set cooldown for next gathering action
-                        robot.cooldown = 2
-                        
-                        -- Check for existing bits to move to bank
-                        local closest_bit = nil
-                        local closest_dist = math.huge
-                        local bank = nil
-                        
-                        -- Find the nearest bit to move to bank
-                        for i, bit in ipairs(game.resource_bits) do
-                            if bit.gathered_by_robot and bit.type == robot.target_resource.type and not bit.moving_to_bank then
-                                -- Get the bank for this resource type
-                                bank = game.resource_banks[bit.type]
-                                if bank then
-                                    -- Calculate distance from bit to bank
-                                    local dx = bank.x - bit.x
-                                    local dy = bank.y - bit.y
-                                    local dist = math.sqrt(dx*dx + dy*dy)
-                                    
-                                    -- Find the closest bit to the bank
-                                    if dist < closest_dist then
-                                        closest_dist = dist
-                                        closest_bit = bit
-                                    end
-                                end
-                            end
-                        end
-                        
-                        -- If found a bit to move, set it in motion toward the bank
-                        if closest_bit and bank then
-                            -- Calculate direction toward bank
-                            local dx = bank.x - closest_bit.x
-                            local dy = bank.y - closest_bit.y
-                            local distance = math.sqrt(dx*dx + dy*dy)
-                            local direction = dx > 0 and 1 or -1
-                            
-                            -- Apply movement
-                            closest_bit.vx = direction * 150
-                            closest_bit.vy = -200
-                            closest_bit.grounded = false
-                            closest_bit.moving_to_bank = true
-                            
-                            -- Add visual effect for moved bits
-                            if game.resource_particles[closest_bit.type] then
-                                game.resource_particles[closest_bit.type]:setPosition(closest_bit.x, closest_bit.y)
-                                game.resource_particles[closest_bit.type]:emit(3)
-                            end
-                        end
-                    end
-                end
-            end
-        elseif robot.type == "TRANSPORTER" then
-            -- Transporter robot behavior - moves between resources
-            if robot.state == "idle" then
-                -- Find a random position to move to
-                robot.target_x = love.math.random(-game.WORLD_WIDTH/2 + 200, game.WORLD_WIDTH/2 - 200)
-                robot.state = "moving"
-            elseif robot.state == "moving" then
-                -- Move toward target
-                local dx = robot.target_x - robot.x
-                local speed = 80 * dt -- Faster movement speed
-                
-                if math.abs(dx) < speed then
-                    -- Reached target
-                    robot.x = robot.target_x
-                    robot.state = "idle"
-                    robot.cooldown = love.math.random(1, 3) -- Random pause
-                else
-                    -- Move toward target
-                    robot.x = robot.x + (dx > 0 and speed or -speed)
-                end
-            end
-        elseif robot.type == "RECYCLER" then
-            -- Recycler robot behavior - stays mostly in place
-            if not robot.home_x then
-                robot.home_x = robot.x
+        game.last_auto_save = 0
+    end
+    
+    -- Clear grid each frame
+    game.grid = {}
+    
+    -- First pass: update positions and add to grid
+    for i, bit in ipairs(game.resource_bits) do
+        if bit.active then
+            -- Apply gravity
+            if not bit.grounded then
+                bit.vy = bit.vy + 500 * dt
             end
             
-            -- Small random movements around home position
-            if love.math.random() < 0.02 then
-                robot.target_x = robot.home_x + love.math.random(-100, 100)
-                robot.state = "moving"
+            -- Update position
+            bit.x = bit.x + bit.vx * dt
+            bit.y = bit.y + bit.vy * dt
+            
+            -- Add to spatial grid
+            game.addBitToGrid(bit)
+            
+            -- Ground collision
+            if bit.y > game.GROUND_LEVEL - bit.size/2 then
+                bit.y = game.GROUND_LEVEL - bit.size/2
+                bit.vy = 0
+                bit.vx = bit.vx * 0.3
+                
+                if math.abs(bit.vx) < 5 then
+                    bit.vx = 0
+                    bit.grounded = true
+                end
             end
             
-            if robot.state == "moving" then
-                -- Move toward target
-                local dx = robot.target_x - robot.x
-                local speed = 30 * dt -- Slower movement speed
-                
-                if math.abs(dx) < speed then
-                    -- Reached target
-                    robot.x = robot.target_x
-                    robot.state = "idle"
-                else
-                    -- Move toward target
-                    robot.x = robot.x + (dx > 0 and speed or -speed)
-                end
+            -- Reset grounded flag if above ground
+            if bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
+                bit.grounded = false
             end
         end
     end
     
-    -- Update resource bits physics
+    -- Second pass: handle collisions using spatial grid
     for i = #game.resource_bits, 1, -1 do
         local bit = game.resource_bits[i]
-        
-        -- Always apply gravity unless explicitly grounded
-        if not bit.grounded then
-            bit.vy = bit.vy + 500 * dt -- Increased gravity
-        end
-        
-        -- Update position
-        bit.x = bit.x + bit.vx * dt
-        bit.y = bit.y + bit.vy * dt
-        
-        -- Check for ground collision
-        if bit.y > game.GROUND_LEVEL - bit.size/2 then
-            bit.y = game.GROUND_LEVEL - bit.size/2
-            bit.vy = 0
-            bit.vx = bit.vx * 0.3 -- Strong friction on ground
+        if bit.active then
+            local supporting_bits = 0
+            local nearby_bits = game.getNearbyBits(bit)
             
-            -- More aggressive grounding - lower threshold
-            if math.abs(bit.vx) < 5 then
-                bit.vx = 0
-                bit.grounded = true
-            end
-        end
-        
-        -- Reset grounded flag if bit is above ground level
-        if bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
-            bit.grounded = false
-        end
-        
-        -- Count how many bits are supporting this one
-        local supporting_bits = 0
-        
-        -- Improved collision handling
-        for j, other_bit in ipairs(game.resource_bits) do
-            if i ~= j then
+            for _, other_bit in ipairs(nearby_bits) do
                 local dx = bit.x - other_bit.x
                 local dy = bit.y - other_bit.y
                 local distance = math.sqrt(dx*dx + dy*dy)
                 
-                -- If bits are very close (overlapping)
-                if distance < bit.size * 1.2 then -- Slightly increased collision distance
-                    -- Calculate direction to push
+                if distance < bit.size * 1.2 then
+                    -- Collision response
                     local push_dx = dx
                     local push_dy = dy
                     
-                    -- Avoid division by zero
                     local push_length = math.sqrt(push_dx*push_dx + push_dy*push_dy)
-                    if push_length > 0.001 then -- Added small threshold
+                    if push_length > 0.001 then
                         push_dx = push_dx / push_length
                         push_dy = push_dy / push_length
                     else
-                        -- If they're exactly at the same position, push in a random direction
                         local angle = love.math.random() * math.pi * 2
                         push_dx = math.cos(angle)
                         push_dy = math.sin(angle)
                     end
                     
-                    -- Calculate overlap
                     local overlap = bit.size - distance
                     if overlap < 0 then overlap = 0 end
                     
-                    -- Resolve collision
                     bit.x = bit.x + push_dx * overlap * 0.6
                     bit.y = bit.y + push_dy * overlap * 0.6
                     other_bit.x = other_bit.x - push_dx * overlap * 0.6
                     other_bit.y = other_bit.y - push_dy * overlap * 0.6
                     
-                    -- If this bit is above the other and close enough, consider it supported
+                    -- Update grid positions after moving
+                    game.updateBitGridPosition(bit)
+                    game.updateBitGridPosition(other_bit)
+                    
+                    -- Check if supported
                     if dy < -bit.size*0.5 and math.abs(dx) < bit.size*0.8 then
                         supporting_bits = supporting_bits + 1
                         
-                        -- If the bit below is grounded, reduce horizontal movement
                         if other_bit.grounded then
                             bit.vx = bit.vx * 0.4
                             
-                            -- Ground this bit if it's very slow and supported by a grounded bit
                             if math.abs(bit.vx) < 10 and math.abs(bit.vy) < 20 then
                                 bit.grounded = true
                             end
@@ -969,44 +829,49 @@ function game.update(dt)
                     end
                 end
             end
-        end
-        
-        -- If this bit has no support and is not on the ground, unground it
-        if supporting_bits == 0 and bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
-            bit.grounded = false
-        end
-        
-        -- Check for resource bank collision - improved to make interaction smoother
-        if bit.moving_to_bank then
-            local bank = game.resource_banks[bit.type]
-            if bank then
-                local dx = bank.x - bit.x
-                local dy = bank.y - bit.y
-                local dist = math.sqrt(dx*dx + dy*dy)
-                
-                -- If very close to bank, collect the resource
-                if dist < 25 then -- Slightly larger collection radius (was 20)
-                    -- Add to resource count 
-                    game.resources_collected[bit.type] = game.resources_collected[bit.type] + 1
+            
+            -- Bank collision check
+            if bit.moving_to_bank then
+                local bank = game.resource_banks[bit.type]
+                if bank then
+                    local dx = bank.x - bit.x
+                    local dy = bank.y - bit.y
+                    local dist = math.sqrt(dx*dx + dy*dy)
                     
-                    -- Visual feedback
-                    table.insert(game.resource_feedback, {
-                        x = bit.x, 
-                        y = bit.y - 20,
-                        type = bit.type,
-                        amount = 1,
-                        time = 1.5
-                    })
-                    
-                    -- Add collection animation
-                    game.addCollectionAnimation(bit.x, bit.y, bit.type, 1)
-                    
-                    -- Remove the bit
-                    table.remove(game.resource_bits, i)
-                    
-                    -- Debug output
-                    print("Added " .. bit.type .. " to inventory! Total: " .. game.resources_collected[bit.type])
+                    if dist < 25 then
+                        -- Add to resource count
+                        game.resources_collected[bit.type] = game.resources_collected[bit.type] + 1
+                        
+                        -- Visual feedback
+                        table.insert(game.resource_feedback, {
+                            x = bit.x, 
+                            y = bit.y - 20,
+                            type = bit.type,
+                            amount = 1,
+                            time = 1.5
+                        })
+                        
+                        -- Add collection animation
+                        game.addCollectionAnimation(bit.x, bit.y, bit.type, 1)
+                        
+                        -- Return bit to pool
+                        game.releaseBitToPool(bit)
+                        game.removeBitFromGrid(bit)
+                        
+                        -- Remove from active bits
+                        table.remove(game.resource_bits, i)
+                        
+                        log.debug("Added " .. bit.type .. " to inventory! Total: " .. game.resources_collected[bit.type])
+                    end
                 end
+            end
+            
+            -- Check for bits that have been around too long (cleanup)
+            if love.timer.getTime() - bit.creation_time > 60 then -- 60 seconds lifetime
+                game.releaseBitToPool(bit)
+                game.removeBitFromGrid(bit)
+                table.remove(game.resource_bits, i)
+                log.debug("Removed old resource bit")
             end
         end
     end
@@ -1598,6 +1463,150 @@ function game.collectResource(resource_type, amount, x, y)
     end
     
     return true
+end
+
+-- Save game state to a file
+function game.saveGame()
+    log.info("Saving game state...")
+    
+    -- Create a save data structure
+    local save_data = {
+        version = game.save_version,
+        timestamp = os.time(),
+        resources_collected = game.resources_collected,
+        pollution_level = game.pollution_level,
+        research_points = game.research_points,
+        -- Serialize only necessary properties of each entity
+        buildings = {},
+        robots = {}
+    }
+    
+    -- Add buildings data
+    for i, building in ipairs(game.buildings) do
+        table.insert(save_data.buildings, {
+            type = building.type,
+            x = building.x,
+            y = building.y
+        })
+    end
+    
+    -- Add robots data
+    for i, robot in ipairs(game.world_entities.robots) do
+        table.insert(save_data.robots, {
+            type = robot.type,
+            x = robot.x,
+            y = robot.y,
+            state = robot.state
+        })
+    end
+    
+    -- Add resources data
+    save_data.resources = {}
+    for i, resource in ipairs(game.world_entities.resources) do
+        table.insert(save_data.resources, {
+            type = resource.type,
+            x = resource.x,
+            y = resource.y,
+            current_bits = resource.current_bits
+        })
+    end
+    
+    -- Write to file
+    local success, message = pcall(function()
+        love.filesystem.write("save.json", json.encode(save_data))
+    end)
+    
+    if success then
+        log.info("Game saved successfully")
+    else
+        log.error("Failed to save game: " .. tostring(message))
+    end
+    
+    return success, message
+end
+
+-- Load game state from a file
+function game.loadGame()
+    log.info("Loading game state...")
+    
+    if not love.filesystem.getInfo("save.json") then
+        log.warning("No save file found")
+        return false, "No save file found."
+    end
+    
+    local success, data = pcall(function()
+        local contents = love.filesystem.read("save.json")
+        return json.decode(contents)
+    end)
+    
+    if not success then
+        log.error("Failed to load save file: " .. tostring(data))
+        return false, "Corrupted save file."
+    end
+    
+    -- Check version compatibility
+    if data.version ~= game.save_version then
+        log.warning("Save version mismatch: " .. data.version .. " vs " .. game.save_version)
+        -- For now, we'll still try to load it
+    end
+    
+    -- Reset game state
+    game.buildings = {}
+    game.world_entities.robots = {}
+    game.world_entities.resources = {}
+    
+    -- Clear resource bits
+    for i, bit in ipairs(game.resource_bits) do
+        game.releaseBitToPool(bit)
+    end
+    game.resource_bits = {}
+    
+    -- Load resources
+    game.resources_collected = data.resources_collected
+    game.pollution_level = data.pollution_level
+    game.research_points = data.research_points
+    
+    -- Load buildings
+    for _, building_data in ipairs(data.buildings) do
+        local building = {
+            type = building_data.type,
+            x = building_data.x,
+            y = building_data.y
+        }
+        table.insert(game.buildings, building)
+    end
+    
+    -- Load robots
+    for _, robot_data in ipairs(data.robots) do
+        local robot = {
+            type = robot_data.type,
+            x = robot_data.x,
+            y = robot_data.y,
+            state = robot_data.state or "idle",
+            size = robots.TYPES[robot_data.type].size,
+            cooldown = 0
+        }
+        table.insert(game.world_entities.robots, robot)
+    end
+    
+    -- Load resources
+    if data.resources then
+        for _, resource_data in ipairs(data.resources) do
+            local resource = {
+                type = resource_data.type,
+                x = resource_data.x,
+                y = resource_data.y,
+                current_bits = resource_data.current_bits
+            }
+            table.insert(game.world_entities.resources, resource)
+        end
+    else
+        -- If no resources in save, regenerate them
+        game.generateResources()
+    end
+    
+    log.info("Game loaded successfully")
+    return true, "Game loaded successfully."
 end
 
 return game 

@@ -2,6 +2,9 @@
 -- Manages user interface elements
 
 local robots = require("src.robots")
+local log = require("src.log")
+local audio = require("src.audio")
+local tutorial = require("src.tutorial")
 
 local ui = {}
 
@@ -38,12 +41,77 @@ local shortcuts = {
 -- Button state
 local buttons = {}
 
+-- Add save/load buttons to settings panel
+local save_button = {
+    x = 0, -- Will be set in draw function
+    y = 0, -- Will be set in draw function
+    width = 80,
+    height = 30,
+    text = "Save Game",
+    hover = false
+}
+
+local load_button = {
+    x = 0, -- Will be set in draw function
+    y = 0, -- Will be set in draw function
+    width = 80,
+    height = 30,
+    text = "Load Game",
+    hover = false
+}
+
+-- Add audio controls to settings panel
+local audio_toggle_button = {
+    x = 0, -- Will be set in draw function
+    y = 0, -- Will be set in draw function
+    width = 80,
+    height = 30,
+    text = "Toggle Audio",
+    hover = false
+}
+
+-- Volume sliders
+local master_volume_slider = {
+    x = 0, -- Will be set in draw function
+    y = 0, -- Will be set in draw function
+    width = 200,
+    height = 20,
+    value = 1.0, -- 0.0 to 1.0
+    dragging = false,
+    label = "Master Volume"
+}
+
+local sfx_volume_slider = {
+    x = 0, -- Will be set in draw function
+    y = 0, -- Will be set in draw function
+    width = 200,
+    height = 20,
+    value = 0.8, -- 0.0 to 1.0
+    dragging = false,
+    label = "SFX Volume"
+}
+
+local music_volume_slider = {
+    x = 0, -- Will be set in draw function
+    y = 0, -- Will be set in draw function
+    width = 200,
+    height = 20,
+    value = 0.5, -- 0.0 to 1.0
+    dragging = false,
+    label = "Music Volume"
+}
+
 function ui.load()
     -- Load font
     font = love.graphics.getFont() -- Default font
     
     -- Initialize robot buttons
     ui.initRobotButtons()
+    
+    -- Initialize volume slider values from audio module
+    master_volume_slider.value = audio.volume.master
+    sfx_volume_slider.value = audio.volume.sfx
+    music_volume_slider.value = audio.volume.music
 end
 
 function ui.initRobotButtons()
@@ -110,6 +178,31 @@ function ui.update(dt)
         else
             button.hover = false
         end
+    end
+    
+    -- Update volume sliders if dragging
+    if master_volume_slider.dragging then
+        local mx, my = love.mouse.getPosition()
+        local new_value = (mx - master_volume_slider.x) / master_volume_slider.width
+        new_value = math.max(0, math.min(1, new_value))
+        master_volume_slider.value = new_value
+        audio.setMasterVolume(new_value)
+    end
+    
+    if sfx_volume_slider.dragging then
+        local mx, my = love.mouse.getPosition()
+        local new_value = (mx - sfx_volume_slider.x) / sfx_volume_slider.width
+        new_value = math.max(0, math.min(1, new_value))
+        sfx_volume_slider.value = new_value
+        audio.setSfxVolume(new_value)
+    end
+    
+    if music_volume_slider.dragging then
+        local mx, my = love.mouse.getPosition()
+        local new_value = (mx - music_volume_slider.x) / music_volume_slider.width
+        new_value = math.max(0, math.min(1, new_value))
+        music_volume_slider.value = new_value
+        audio.setMusicVolume(new_value)
     end
 end
 
@@ -456,6 +549,50 @@ Game Features:
         love.graphics.printf("A - Toggle Auto-Collection\nV - Toggle Collection Radius\nS - Toggle Settings Panel\n+ / - - Adjust UI Scale", 
             settings_panel.x + 40, settings_panel.y + 230, settings_panel.width - 80, "left")
         
+        -- Set positions for save/load buttons
+        save_button.x = settings_panel.x + 20
+        save_button.y = settings_panel.y + 60
+        load_button.x = settings_panel.x + settings_panel.width - 100
+        load_button.y = settings_panel.y + 60
+        
+        -- Draw save button
+        love.graphics.setColor(save_button.hover and 0.4 or 0.3, 0.3, 0.3)
+        love.graphics.rectangle("fill", save_button.x, save_button.y, save_button.width, save_button.height)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.rectangle("line", save_button.x, save_button.y, save_button.width, save_button.height)
+        love.graphics.printf(save_button.text, save_button.x, save_button.y + 8, save_button.width, "center")
+        
+        -- Draw load button
+        love.graphics.setColor(load_button.hover and 0.4 or 0.3, 0.3, 0.3)
+        love.graphics.rectangle("fill", load_button.x, load_button.y, load_button.width, load_button.height)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.rectangle("line", load_button.x, load_button.y, load_button.width, load_button.height)
+        love.graphics.printf(load_button.text, load_button.x, load_button.y + 8, load_button.width, "center")
+        
+        -- Set position for audio toggle button
+        audio_toggle_button.x = settings_panel.x + settings_panel.width/2 - 40
+        audio_toggle_button.y = settings_panel.y + 110
+        
+        -- Draw audio toggle button
+        love.graphics.setColor(audio_toggle_button.hover and 0.4 or 0.3, 0.3, 0.3)
+        love.graphics.rectangle("fill", audio_toggle_button.x, audio_toggle_button.y, audio_toggle_button.width, audio_toggle_button.height)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.rectangle("line", audio_toggle_button.x, audio_toggle_button.y, audio_toggle_button.width, audio_toggle_button.height)
+        love.graphics.printf(audio.enabled and "Mute Audio" or "Enable Audio", audio_toggle_button.x, audio_toggle_button.y + 8, audio_toggle_button.width, "center")
+        
+        -- Set positions for volume sliders
+        master_volume_slider.x = settings_panel.x + 20
+        master_volume_slider.y = settings_panel.y + 160
+        sfx_volume_slider.x = settings_panel.x + 20
+        sfx_volume_slider.y = settings_panel.y + 210
+        music_volume_slider.x = settings_panel.x + 20
+        music_volume_slider.y = settings_panel.y + 260
+        
+        -- Draw volume sliders
+        drawSlider(master_volume_slider, math.floor(master_volume_slider.value * 100) .. "%")
+        drawSlider(sfx_volume_slider, math.floor(sfx_volume_slider.value * 100) .. "%")
+        drawSlider(music_volume_slider, math.floor(music_volume_slider.value * 100) .. "%")
+        
         -- Draw close button
         love.graphics.setColor(0.8, 0.2, 0.2)
         love.graphics.rectangle("fill", settings_panel.x + settings_panel.width - 30, settings_panel.y + 10, 20, 20)
@@ -566,6 +703,121 @@ function ui.mousepressed(x, y, button, game)
                 return true
             end
             
+            -- Check save button
+            if x >= save_button.x and x <= save_button.x + save_button.width and
+               y >= save_button.y and y <= save_button.y + save_button.height then
+                -- Save game
+                local success, message = game.saveGame()
+                if success then
+                    log.info("Game saved successfully")
+                    -- Show feedback message
+                    table.insert(game.resource_feedback, {
+                        x = love.graphics.getWidth() / 2,
+                        y = love.graphics.getHeight() / 2,
+                        type = "system",
+                        text = "Game saved successfully!",
+                        amount = 0,
+                        time = 2.0
+                    })
+                    -- Play sound
+                    audio.playSound("collect")
+                else
+                    log.error("Failed to save game: " .. tostring(message))
+                    -- Show error message
+                    table.insert(game.resource_feedback, {
+                        x = love.graphics.getWidth() / 2,
+                        y = love.graphics.getHeight() / 2,
+                        type = "system",
+                        text = "Failed to save game!",
+                        amount = 0,
+                        time = 2.0
+                    })
+                    -- Play error sound
+                    audio.playSound("error")
+                end
+                return true
+            end
+            
+            -- Check load button
+            if x >= load_button.x and x <= load_button.x + load_button.width and
+               y >= load_button.y and y <= load_button.y + load_button.height then
+                -- Load game
+                local success, message = game.loadGame()
+                if success then
+                    log.info("Game loaded successfully")
+                    -- Show feedback message
+                    table.insert(game.resource_feedback, {
+                        x = love.graphics.getWidth() / 2,
+                        y = love.graphics.getHeight() / 2,
+                        type = "system",
+                        text = "Game loaded successfully!",
+                        amount = 0,
+                        time = 2.0
+                    })
+                    -- Play sound
+                    audio.playSound("collect")
+                else
+                    log.error("Failed to load game: " .. tostring(message))
+                    -- Show error message
+                    table.insert(game.resource_feedback, {
+                        x = love.graphics.getWidth() / 2,
+                        y = love.graphics.getHeight() / 2,
+                        type = "system",
+                        text = message or "Failed to load game!",
+                        amount = 0,
+                        time = 2.0
+                    })
+                    -- Play error sound
+                    audio.playSound("error")
+                end
+                return true
+            end
+            
+            -- Check audio toggle button
+            if x >= audio_toggle_button.x and x <= audio_toggle_button.x + audio_toggle_button.width and
+               y >= audio_toggle_button.y and y <= audio_toggle_button.y + audio_toggle_button.height then
+                -- Toggle audio
+                local enabled = audio.toggleSounds()
+                log.info("Audio " .. (enabled and "enabled" or "disabled"))
+                return true
+            end
+            
+            -- Check master volume slider
+            if x >= master_volume_slider.x and x <= master_volume_slider.x + master_volume_slider.width and
+               y >= master_volume_slider.y - 5 and y <= master_volume_slider.y + master_volume_slider.height + 5 then
+                master_volume_slider.dragging = true
+                -- Update value immediately
+                local new_value = (x - master_volume_slider.x) / master_volume_slider.width
+                new_value = math.max(0, math.min(1, new_value))
+                master_volume_slider.value = new_value
+                audio.setMasterVolume(new_value)
+                return true
+            end
+            
+            -- Check SFX volume slider
+            if x >= sfx_volume_slider.x and x <= sfx_volume_slider.x + sfx_volume_slider.width and
+               y >= sfx_volume_slider.y - 5 and y <= sfx_volume_slider.y + sfx_volume_slider.height + 5 then
+                sfx_volume_slider.dragging = true
+                -- Update value immediately
+                local new_value = (x - sfx_volume_slider.x) / sfx_volume_slider.width
+                new_value = math.max(0, math.min(1, new_value))
+                sfx_volume_slider.value = new_value
+                audio.setSfxVolume(new_value)
+                return true
+            end
+            
+            -- Check music volume slider
+            if x >= music_volume_slider.x and x <= music_volume_slider.x + music_volume_slider.width and
+               y >= music_volume_slider.y - 5 and y <= music_volume_slider.y + music_volume_slider.height + 5 then
+                music_volume_slider.dragging = true
+                -- Update value immediately
+                local new_value = (x - music_volume_slider.x) / music_volume_slider.width
+                new_value = math.max(0, math.min(1, new_value))
+                music_volume_slider.value = new_value
+                audio.setMusicVolume(new_value)
+                return true
+            end
+            
             -- Check close button
             if x >= settings_panel.x + settings_panel.width - 30 and x <= settings_panel.x + settings_panel.width - 10 and
                y >= settings_panel.y + 10 and y <= settings_panel.y + 30 then
@@ -582,6 +834,11 @@ end
 
 function ui.mousereleased(x, y, button)
     -- Handle UI button releases
+    
+    -- Stop dragging sliders
+    master_volume_slider.dragging = false
+    sfx_volume_slider.dragging = false
+    music_volume_slider.dragging = false
 end
 
 function ui.mousemoved(x, y)
@@ -617,6 +874,18 @@ function ui.mousemoved(x, y)
             tooltip.visible = true
             break
         end
+    end
+    
+    -- Update save/load button hover states
+    if settings_panel.visible then
+        save_button.hover = x >= save_button.x and x <= save_button.x + save_button.width and
+                           y >= save_button.y and y <= save_button.y + save_button.height
+        
+        load_button.hover = x >= load_button.x and x <= load_button.x + load_button.width and
+                           y >= load_button.y and y <= load_button.y + load_button.height
+        
+        audio_toggle_button.hover = x >= audio_toggle_button.x and x <= audio_toggle_button.x + audio_toggle_button.width and
+                                   y >= audio_toggle_button.y and y <= audio_toggle_button.y + audio_toggle_button.height
     end
 end
 
@@ -732,6 +1001,30 @@ function ui.updatePanelPositions()
     
     -- Reinitialize robot buttons with new positions
     ui.initRobotButtons()
+end
+
+-- Helper function to draw a slider
+local function drawSlider(slider, value_text)
+    -- Draw slider background
+    love.graphics.setColor(0.2, 0.2, 0.2)
+    love.graphics.rectangle("fill", slider.x, slider.y, slider.width, slider.height)
+    
+    -- Draw slider fill
+    love.graphics.setColor(0.4, 0.4, 0.4)
+    love.graphics.rectangle("fill", slider.x, slider.y, slider.width * slider.value, slider.height)
+    
+    -- Draw slider border
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.rectangle("line", slider.x, slider.y, slider.width, slider.height)
+    
+    -- Draw slider handle
+    love.graphics.setColor(0.8, 0.8, 0.8)
+    local handle_x = slider.x + slider.width * slider.value
+    love.graphics.rectangle("fill", handle_x - 5, slider.y - 5, 10, slider.height + 10)
+    
+    -- Draw slider label
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.printf(slider.label .. ": " .. value_text, slider.x, slider.y - 20, slider.width, "left")
 end
 
 return ui 
