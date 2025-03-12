@@ -3,11 +3,15 @@ local camera = require("src.camera")
 local game = require("src.game")
 local ui = require("src.ui")
 local pollution = require("src.pollution")
+local config = require("src.config")
 
 -- Initialize game
 function love.load()
     -- Set up the window
     love.graphics.setBackgroundColor(0.1, 0.1, 0.1) -- Dark background
+    
+    -- Initialize configuration
+    config.init()
     
     -- Initialize modules
     game.load()

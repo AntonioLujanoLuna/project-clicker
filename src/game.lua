@@ -11,16 +11,16 @@ local config = require("src.config")
 
 local game = {}
 
--- Game constants
-game.WORLD_WIDTH = config.world.width
-game.WORLD_HEIGHT = config.world.height
-game.GROUND_HEIGHT = config.world.ground_height
-game.GROUND_LEVEL = game.GROUND_HEIGHT - game.WORLD_HEIGHT/2 -- Y coordinate of ground level
-game.HORIZON_LEVEL = config.world.horizon_level
-game.SKY_COLOR = config.world.sky_color
-game.GROUND_COLOR = config.world.ground_color
-game.UNDERGROUND_COLOR = config.world.underground_color
-game.GRID_SIZE = config.world.grid_size
+-- Game constants - placeholders to be initialized in game.load()
+game.WORLD_WIDTH = nil
+game.WORLD_HEIGHT = nil
+game.GROUND_HEIGHT = nil
+game.GROUND_LEVEL = nil
+game.HORIZON_LEVEL = nil
+game.SKY_COLOR = nil
+game.GROUND_COLOR = nil
+game.UNDERGROUND_COLOR = nil
+game.GRID_SIZE = nil
 
 -- Game state
 game.resources = {}
@@ -60,39 +60,8 @@ game.resource_bit_pixels = {
     }
 }
 
--- Resource banks (collection points)
-game.resource_banks = {
-    wood = {x = -120, y = game.GROUND_LEVEL, pixels = {
-        {0,0,1,1,1,1,0,0},
-        {0,1,1,1,1,1,1,0},
-        {1,1,1,1,1,1,1,1},
-        {1,1,0,1,1,0,1,1},
-        {1,1,1,1,1,1,1,1},
-        {1,1,1,1,1,1,1,1},
-        {1,1,1,1,1,1,1,1},
-        {1,1,1,1,1,1,1,1}
-    }},
-    stone = {x = 0, y = game.GROUND_LEVEL, pixels = {
-        {0,0,1,1,1,1,0,0},
-        {0,1,1,1,1,1,1,0},
-        {1,1,0,0,0,0,1,1},
-        {1,1,0,1,1,0,1,1},
-        {1,1,0,1,1,0,1,1},
-        {1,1,1,1,1,1,1,1},
-        {1,1,1,1,1,1,1,1},
-        {1,1,1,1,1,1,1,1}
-    }},
-    food = {x = 120, y = game.GROUND_LEVEL, pixels = {
-        {0,0,1,1,1,1,0,0},
-        {0,1,1,1,1,1,1,0},
-        {1,1,1,0,0,1,1,1},
-        {1,1,0,0,0,0,1,1},
-        {1,1,0,0,0,0,1,1},
-        {1,1,1,1,1,1,1,1},
-        {1,1,1,1,1,1,1,1},
-        {1,1,1,1,1,1,1,1}
-    }}
-}
+-- Resource banks (collection points) - placeholder, will be initialized in game.load()
+game.resource_banks = {}
 
 -- World entities (temporary representation)
 game.world_entities = {
@@ -244,6 +213,59 @@ local function initializeWorld()
 end
 
 function game.load()
+    -- Initialize game constants
+    game.WORLD_WIDTH = config.world.width
+    game.WORLD_HEIGHT = config.world.height
+    game.GROUND_HEIGHT = config.world.ground_height
+    game.GROUND_LEVEL = game.GROUND_HEIGHT - game.WORLD_HEIGHT/2 -- Y coordinate of ground level
+    
+    -- Ensure horizon level is set, even if config.world.horizon_level is nil
+    if config.world.horizon_level then
+        game.HORIZON_LEVEL = config.world.horizon_level
+    else
+        -- Calculate a default horizon level if not provided in config
+        game.HORIZON_LEVEL = game.GROUND_LEVEL - 200
+    end
+    
+    game.SKY_COLOR = config.world.sky_color
+    game.GROUND_COLOR = config.world.ground_color
+    game.UNDERGROUND_COLOR = config.world.underground_color
+    game.GRID_SIZE = config.world.grid_size
+    
+    -- Initialize resource banks after GROUND_LEVEL is set
+    game.resource_banks = {
+        wood = {x = -120, y = game.GROUND_LEVEL, pixels = {
+            {0,0,1,1,1,1,0,0},
+            {0,1,1,1,1,1,1,0},
+            {1,1,1,1,1,1,1,1},
+            {1,1,0,1,1,0,1,1},
+            {1,1,1,1,1,1,1,1},
+            {1,1,1,1,1,1,1,1},
+            {1,1,1,1,1,1,1,1},
+            {1,1,1,1,1,1,1,1}
+        }},
+        stone = {x = 0, y = game.GROUND_LEVEL, pixels = {
+            {0,0,1,1,1,1,0,0},
+            {0,1,1,1,1,1,1,0},
+            {1,1,0,0,0,0,1,1},
+            {1,1,0,1,1,0,1,1},
+            {1,1,0,1,1,0,1,1},
+            {1,1,1,1,1,1,1,1},
+            {1,1,1,1,1,1,1,1},
+            {1,1,1,1,1,1,1,1}
+        }},
+        food = {x = 120, y = game.GROUND_LEVEL, pixels = {
+            {0,0,1,1,1,1,0,0},
+            {0,1,1,1,1,1,1,0},
+            {1,1,1,0,0,1,1,1},
+            {1,1,0,0,0,0,1,1},
+            {1,1,0,0,0,0,1,1},
+            {1,1,1,1,1,1,1,1},
+            {1,1,1,1,1,1,1,1},
+            {1,1,1,1,1,1,1,1}
+        }}
+    }
+    
     -- Initialize camera with world boundaries
     camera.load(game.WORLD_WIDTH, game.WORLD_HEIGHT)
     
@@ -308,8 +330,10 @@ function game.draw()
     love.graphics.rectangle("fill", -game.WORLD_WIDTH/2, game.GROUND_LEVEL, game.WORLD_WIDTH, game.WORLD_HEIGHT/2)
     
     -- Draw horizon line
-    love.graphics.setColor(0.3, 0.3, 0.3)
-    love.graphics.line(-game.WORLD_WIDTH/2, game.HORIZON_LEVEL, game.WORLD_WIDTH/2, game.HORIZON_LEVEL)
+    if game.HORIZON_LEVEL then -- Add check to ensure HORIZON_LEVEL is not nil
+        love.graphics.setColor(0.3, 0.3, 0.3)
+        love.graphics.line(-game.WORLD_WIDTH/2, game.HORIZON_LEVEL, game.WORLD_WIDTH/2, game.HORIZON_LEVEL)
+    end
     
     -- Draw collection radius
     game.drawCollectionRadius()
