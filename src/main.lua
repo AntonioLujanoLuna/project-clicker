@@ -59,8 +59,8 @@ function love.mousepressed(x, y, button)
         -- Convert screen coordinates to world coordinates
         local wx, wy = camera.screenToWorld(x, y)
         
-        -- Check UI clicks first
-        if ui.mousepressed(x, y) then
+        -- Check UI clicks first (FIX: Pass the game object)
+        if ui.mousepressed(x, y, button, game) then
             return -- UI handled the click
         end
         
@@ -136,4 +136,4 @@ function love.keypressed(key)
     
     -- Game shortcuts
     game.keypressed(key)
-end 
+end

@@ -474,8 +474,14 @@ function ui.mousepressed(x, y, button, game)
                 elseif nav_button.panel == "research" then
                     research_panel.visible = not research_panel.visible
                     robot_panel.visible = false
+                elseif nav_button.panel == "help" then
+                    help_panel.visible = not help_panel.visible
+                    settings_panel.visible = false
+                elseif nav_button.panel == "settings" then
+                    settings_panel.visible = not settings_panel.visible
+                    help_panel.visible = false
                 end
-                return -- Don't process other clicks if we clicked a nav button
+                return true -- Return true to indicate we handled the click
             end
         end
         
@@ -483,16 +489,34 @@ function ui.mousepressed(x, y, button, game)
         for _, ui_button in ipairs(buttons) do
             if ui_button.hover then
                 if ui_button.type == "robot" then
-                    -- Try to build the robot
-                    local success = robots.build(robots.TYPES[ui_button.robot_type], game.resources)
+                    -- Try to build the robot using resources_collected instead of resources
+                    local robot_type = robots.TYPES[ui_button.robot_type]
                     
-                    if success then
+                    -- Check if the player has enough resources manually
+                    local can_afford = true
+                    for resource_name, amount in pairs(robot_type.cost) do
+                        local resource_key = resource_name:lower() -- Convert to lowercase to match resources_collected keys
+                        if not game.resources_collected[resource_key] or game.resources_collected[resource_key] < amount then
+                            can_afford = false
+                            break
+                        end
+                    end
+                    
+                    if can_afford then
+                        -- Subtract resources
+                        for resource_name, amount in pairs(robot_type.cost) do
+                            local resource_key = resource_name:lower()
+                            game.resources_collected[resource_key] = game.resources_collected[resource_key] - amount
+                        end
+                        
                         -- Create a robot in the game world with the correct type
                         local robot_entity = game.addRobot(ui_button.robot_type)
                         
                         print("Built a " .. ui_button.name .. " robot!")
+                        return true
                     else
                         print("Not enough resources to build " .. ui_button.name)
+                        return true
                     end
                 elseif ui_button.type == "research" then
                     -- Handle research button clicks (placeholder)
@@ -503,6 +527,7 @@ function ui.mousepressed(x, y, button, game)
                     else
                         print("Not enough research points for " .. ui_button.name)
                     end
+                    return true
                 end
             end
         end
@@ -544,7 +569,11 @@ function ui.mousepressed(x, y, button, game)
                 return true
             end
         end
+        
+        return false -- Return false to indicate we didn't handle the click
     end
+    
+    return false
 end
 
 function ui.mousereleased(x, y, button)
