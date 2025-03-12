@@ -1181,6 +1181,11 @@ function game.keypressed(key)
     elseif key == "v" then
         local visible = game.toggleCollectRadiusVisibility()
         print("Collection radius " .. (visible and "visible" or "hidden"))
+    elseif key == "f" then
+        -- Toggle fullscreen mode
+        local fullscreen = not love.window.getFullscreen()
+        love.window.setFullscreen(fullscreen)
+        print("Fullscreen mode " .. (fullscreen and "enabled" or "disabled"))
     end
 end
 

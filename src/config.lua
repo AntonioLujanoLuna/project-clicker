@@ -27,8 +27,8 @@ config.resources = {
             pollution_per_click = 0.1,
             size = 30,
             bits = {
-                min = 20,  -- Minimum bits for closest resources
-                max = 80   -- Maximum bits for furthest resources
+                min = 100,  -- Minimum bits for closest resources
+                max = 800   -- Maximum bits for furthest resources
             }
         },
         stone = {
@@ -38,8 +38,8 @@ config.resources = {
             pollution_per_click = 0.2,
             size = 25,
             bits = {
-                min = 20,
-                max = 80
+                min = 100,
+                max = 800
             }
         },
         food = {
@@ -49,14 +49,14 @@ config.resources = {
             pollution_per_click = 0.05,
             size = 20,
             bits = {
-                min = 20,
-                max = 80
+                min = 100,
+                max = 800
             }
         }
     },
     bits = {
         size = 3,        -- Size of resource bits
-        initial_vx_range = {-30, 30},     -- Initial horizontal velocity range
+        initial_vx_range = {-40, 40},     -- Initial horizontal velocity range
         initial_vy_range = {-100, -200},  -- Initial vertical velocity range
         click_bits_to_generate = 15       -- How many bits generated per click
     }
@@ -69,10 +69,10 @@ config.robots = {
             name = "Gatherer",
             description = "Automatically gathers resources",
             cost = {Wood = 50, Stone = 30},
-            gather_rate = 0.2,
+            gather_rate = 1,
             pollution = 1,
             size = 16,
-            cooldown = 2  -- Gathering takes 2 seconds
+            cooldown = 1  -- Gathering takes 2 seconds
         },
         TRANSPORTER = {
             name = "Transporter",
@@ -81,13 +81,13 @@ config.robots = {
             efficiency_bonus = 0.1,
             pollution = 0.5,
             size = 16,
-            speed = 80    -- Movement speed
+            speed = 150    -- Movement speed
         },
         RECYCLER = {
             name = "Recycler",
             description = "Reduces pollution from activities",
             cost = {Wood = 70, Stone = 40},
-            pollution_reduction = 0.2,
+            pollution_reduction = 0.5,
             pollution = 0.2,
             size = 16,
             speed = 30    -- Movement speed
@@ -151,9 +151,9 @@ config.pollution = {
 
 -- Collection settings
 config.collection = {
-    auto_collect_radius = 150,
-    auto_collect_cooldown = 1.5,
-    collection_animation_duration = 1.5
+    auto_collect_radius = 250,
+    auto_collect_cooldown = 1,
+    collection_animation_duration = 1
 }
 
 -- Camera settings
@@ -175,7 +175,7 @@ function config.init()
     -- Set colors
     config.world.sky_color = {0.1, 0.1, 0.1}
     config.world.ground_color = {0.2, 0.2, 0.2}
-    config.world.underground_color = {0.1, 0.1, 0.1}
+    config.world.underground_color = {0.2, 0.2, 0.2}
 end
 
 return config
