@@ -227,7 +227,10 @@ end
 -- Check if player has enough resources to build a robot
 function robots.canAfford(robot_type, resources)
     for resource_name, amount in pairs(robot_type.cost) do
-        if resources[resource_name] < amount then
+        -- Make sure the resource exists in the resources table
+        local available = resources[resource_name] or 0
+        -- Now we can safely compare
+        if available < amount then
             return false
         end
     end
@@ -237,8 +240,13 @@ end
 -- Build a new robot
 function robots.build(robot_type, resources)
     if robots.canAfford(robot_type, resources) then
-        -- Subtract cost
+        -- Subtract cost (with safety check)
         for resource_name, amount in pairs(robot_type.cost) do
+            -- Initialize the resource if it doesn't exist
+            if resources[resource_name] == nil then
+                resources[resource_name] = 0
+            end
+            -- Now safely subtract
             resources[resource_name] = resources[resource_name] - amount
         end
         

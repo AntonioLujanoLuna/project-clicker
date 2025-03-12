@@ -729,22 +729,6 @@ function game.update(dt)
                     
                     -- Debug output
                     print("Added " .. bit.type .. " to inventory! Total: " .. game.resources_collected[bit.type])
-                -- If bit has landed but is still not close enough to bank, make it jump again with better physics
-                elseif bit.grounded and math.abs(dx) > 20 then
-                    -- Calculate direction toward bank
-                    local direction = dx > 0 and 1 or -1
-                    local distance = math.abs(dx)
-                    
-                    -- Jump toward bank with a distance-based velocity
-                    local jump_strength = math.min(distance * 0.3, 250) -- Stronger jump
-                    
-                    -- Better jumping physics with more consistent jumps
-                    bit.vx = direction * jump_strength 
-                    bit.vy = -300 - love.math.random(0, 50) -- Stronger upward velocity with slight randomization
-                    bit.grounded = false
-                    
-                    -- Debug output
-                    print("Resource bit jumping again toward bank! Distance: " .. distance)
                 end
             end
         end
