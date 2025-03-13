@@ -137,53 +137,6 @@ function game.initializeBitPool()
     end
 end
 
--- Get a bit from the pool
-function game.getBitFromPool()
-    -- Find an inactive bit
-    for i, bit in ipairs(game.bit_pool) do
-        if not bit.active then
-            bit.active = true
-            return bit
-            end
-        end
-        
-    -- If no inactive bits, create a new one (expand pool)
-    local new_bit = {
-        active = true,
-        x = 0,
-        y = 0,
-        type = "",
-        size = 0,
-        vx = 0,
-        vy = 0,
-        grounded = false,
-        colliding_with = nil,
-        moving_to_bank = false,
-        grid_key = nil,
-        creation_time = 0
-    }
-    
-    table.insert(game.bit_pool, new_bit)
-    log.info("Expanded bit pool to " .. #game.bit_pool)
-    
-    return new_bit
-end
-
--- Release a bit back to the pool
-function game.releaseBitToPool(bit)
-    if bit then
-        bit.active = false
-        bit.x = 0
-        bit.y = 0
-        bit.type = ""
-        bit.size = 0
-        bit.vx = 0
-        bit.vy = 0
-        bit.grounded = false
-        bit.moving_to_bank = false
-        bit.creation_time = 0
-    end
-end
 
 -- Add a bit to the spatial grid for collision detection
 function game.addBitToGrid(bit)
@@ -1641,22 +1594,40 @@ function game.generateResources()
         
         -- Create 10 resources of each type
         for i = 1, 10 do
-            local x = math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
-            local y = game.GROUND_LEVEL - math.random(10, 30)
+            local x, y
+            local valid_position = false
+            local attempts = 0
+            local max_attempts = 50
+            local min_distance = config.resources.min_bank_distance or 200
             
-            -- Calculate max bits (random value between min and max)
-            local resource_max_bits = math.floor(min_bits + math.random() * (max_bits - min_bits))
+            -- Try to find a position not too close to any bank
+            while not valid_position and attempts < max_attempts do
+                x = math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
+                y = game.GROUND_LEVEL - math.random(10, 30)
+                
+                -- Check if the position is too close to any bank
+                valid_position = not isTooCloseToBank(x, y, min_distance)
+                attempts = attempts + 1
+            end
             
-            -- Create the resource with all required properties
-            table.insert(game.world_entities.resources, {
-                x = x,
-                y = y,
-                type = resource_type,
-                size = size,
-                max_bits = resource_max_bits,
-                current_bits = resource_max_bits,
-                active = true
-            })
+            -- Only create the resource if we found a valid position
+            if valid_position then
+                -- Calculate max bits (random value between min and max)
+                local resource_max_bits = math.floor(min_bits + math.random() * (max_bits - min_bits))
+                
+                -- Create the resource with all required properties
+                table.insert(game.world_entities.resources, {
+                    x = x,
+                    y = y,
+                    type = resource_type,
+                    size = size,
+                    max_bits = resource_max_bits,
+                    current_bits = resource_max_bits,
+                    active = true
+                })
+            else
+                log.warning("Could not find valid position for " .. resource_type .. " resource after " .. max_attempts .. " attempts")
+            end
         end
     end
     
@@ -1679,7 +1650,9 @@ function game.initBitPool()
             vx = 0,
             vy = 0,
             grounded = false,
+            colliding_with = nil, -- Added this property
             moving_to_bank = false,
+            grid_cell = nil, -- Added this property
             creation_time = 0
         }
     end
@@ -1697,8 +1670,12 @@ function game.getBitFromPool()
     -- Find an inactive bit in the pool
     for i = 1, #game.bit_pool do
         if not game.bit_pool[i].active then
-            game.bit_pool[i].active = true
-            return game.bit_pool[i]
+            local bit = game.bit_pool[i]
+            bit.active = true
+            bit.colliding_with = nil
+            bit.grid_cell = nil -- Important for proper grid handling
+            bit.creation_time = love.timer.getTime()
+            return bit
         end
     end
     
@@ -1712,8 +1689,10 @@ function game.getBitFromPool()
         vx = 0,
         vy = 0,
         grounded = false,
+        colliding_with = nil,
         moving_to_bank = false,
-        creation_time = 0
+        grid_cell = nil, -- Important for grid handling
+        creation_time = love.timer.getTime()
     }
     table.insert(game.bit_pool, new_bit)
     
@@ -1724,6 +1703,12 @@ end
 -- Release a bit back to the pool
 function game.releaseBitToPool(bit)
     if bit then
+        -- Remove from grid if it's in one
+        if bit.grid_cell then
+            game.removeBitFromGrid(bit)
+        end
+        
+        -- Reset properties
         bit.active = false
         bit.x = 0
         bit.y = 0
@@ -1732,7 +1717,9 @@ function game.releaseBitToPool(bit)
         bit.vx = 0
         bit.vy = 0
         bit.grounded = false
+        bit.colliding_with = nil
         bit.moving_to_bank = false
+        bit.grid_cell = nil
         bit.creation_time = 0
     end
 end
