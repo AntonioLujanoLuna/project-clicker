@@ -35,21 +35,8 @@ function input.mousepressed(x, y, button, world, camera, game, ui, tutorial)
             local bit_clicked = false
             for i, bit in ipairs(bits.resource_bits) do
                 if bit.active and math.abs(wx - bit.x) < bit.size and math.abs(wy - bit.y) < bit.size then
-                    local clicked_bits = {bit}
-                    
-                    -- Find nearby bits to also send toward bank (powder effect)
-                    for j, other_bit in ipairs(bits.resource_bits) do
-                        if i ~= j and bit.type == other_bit.type then
-                            local dx = bit.x - other_bit.x
-                            local dy = bit.y - other_bit.y
-                            local distance = math.sqrt(dx*dx + dy*dy)
-                            
-                            -- If close enough, include in the clicked group
-                            if distance < bit.size * 4 then
-                                table.insert(clicked_bits, other_bit)
-                            end
-                        end
-                    end
+                    -- Use the new findBitsNearPoint function for better powder-like selection
+                    local clicked_bits = bits.findBitsNearPoint(wx, wy, bit.size * 6, 25, bit.type)
                     
                     -- Send bits to bank
                     local count = bits.sendBitsToBank(clicked_bits, bit.type, world.resource_banks)
@@ -80,7 +67,12 @@ function input.mousepressed(x, y, button, world, camera, game, ui, tutorial)
                         local bits_to_generate = math.min(15, resource.current_bits)
                         
                         -- Generate bits
-                        local created_bits = bits.createBitsFromResource(resource, bits_to_generate, world.GROUND_LEVEL)
+                        local created_bits = bits.createBitsFromResource({
+                            type = resource.type,
+                            x = resource.x,
+                            y = resource.y,
+                            size = resource.size
+                        }, bits_to_generate, world.GROUND_LEVEL)
                         log.info("Created " .. #created_bits .. " bits from resource click")
                         
                         -- Update resource bits count

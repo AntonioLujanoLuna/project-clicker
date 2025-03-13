@@ -321,6 +321,10 @@ function bits.settlePowder(bit, nearby_bits, ground_level, dt)
     local can_slide_left = true
     local can_slide_right = true
     
+    -- Track steepest angle for angle of repose calculation
+    local steepest_angle = 0
+    local steepest_direction = 0 -- -1 for left, 1 for right
+    
     for _, other_bit in ipairs(nearby_bits) do
         local dx = bit.x - other_bit.x
         local dy = bit.y - other_bit.y
@@ -352,6 +356,15 @@ function bits.settlePowder(bit, nearby_bits, ground_level, dt)
                     can_slide_right = false
                 end
             end
+            
+            -- Calculate angle for angle of repose
+            if dy > 0 and distance < bit.size * 2.0 then
+                local angle = math.abs(math.atan2(dy, dx))
+                if angle > steepest_angle then
+                    steepest_angle = angle
+                    steepest_direction = dx < 0 and -1 or 1
+                end
+            end
         end
     end
     
@@ -363,11 +376,19 @@ function bits.settlePowder(bit, nearby_bits, ground_level, dt)
     else
         -- If supported but can slide, create natural pile slope
         if bit.grounded or supported then
-            -- Try to slide down slopes
-            local slide_chance = 0.3 -- Reduced probability of trying to slide (was 0.4)
-            local slide_direction = love.math.random() < 0.5 and -1 or 1 -- Random direction
+            -- Define angle of repose (typical for sand is around 30-35 degrees)
+            local ANGLE_OF_REPOSE = math.rad(32)
             
-            if love.math.random() < slide_chance then
+            -- Try to slide down slopes based on angle of repose
+            local slide_chance = 0.3 -- Base probability
+            
+            -- Increase slide chance if angle is steeper than angle of repose
+            if steepest_angle > 0 and math.pi/2 - steepest_angle < ANGLE_OF_REPOSE then
+                slide_chance = 0.7 -- Much higher chance to slide on steep slopes
+                
+                -- Prefer to slide in the direction of the steepest slope
+                local slide_direction = steepest_direction
+                
                 if slide_direction < 0 and can_slide_left then
                     -- Slide left
                     bit.vx = -20 - love.math.random(0, 10)
@@ -379,9 +400,164 @@ function bits.settlePowder(bit, nearby_bits, ground_level, dt)
                     bit.vy = 10 + love.math.random(0, 10)
                     bit.settled = false
                 end
+            else
+                -- Random sliding with lower probability for stable angles
+                local slide_direction = love.math.random() < 0.5 and -1 or 1
+                
+                if love.math.random() < slide_chance then
+                    if slide_direction < 0 and can_slide_left then
+                        -- Slide left
+                        bit.vx = -20 - love.math.random(0, 10)
+                        bit.vy = 10 + love.math.random(0, 10)
+                        bit.settled = false
+                    elseif slide_direction > 0 and can_slide_right then
+                        -- Slide right
+                        bit.vx = 20 + love.math.random(0, 10)
+                        bit.vy = 10 + love.math.random(0, 10)
+                        bit.settled = false
+                    end
+                end
             end
         end
     end
+end
+
+-- Multi-pass settling algorithm for more realistic powder behavior
+function bits.multiPassSettle(dt, ground_level)
+    -- Multiple settling passes per frame for more responsive sand behavior
+    local PASSES = 3
+    
+    for pass = 1, PASSES do
+        -- Process from bottom to top for proper pile formation
+        local sorted_bits = {}
+        for _, bit in ipairs(bits.resource_bits) do
+            if bit.active and not bit.moving_to_bank then
+                table.insert(sorted_bits, bit)
+            end
+        end
+        
+        -- Sort bits from bottom to top (process lower bits first)
+        table.sort(sorted_bits, function(a, b) return a.y > b.y end)
+        
+        -- Process each bit's stability
+        for _, bit in ipairs(sorted_bits) do
+            if not bit.settled then
+                local nearby_bits = bits.getNearbyBits(bit)
+                bits.settlePowder(bit, nearby_bits, ground_level, dt/PASSES)
+            end
+        end
+    end
+end
+
+-- Trigger an avalanche effect when bits are removed
+function bits.triggerAvalanche(x, y, radius)
+    local affected_count = 0
+    
+    for _, bit in ipairs(bits.resource_bits) do
+        if bit.active and not bit.moving_to_bank then
+            local distance = math.sqrt((bit.x - x)^2 + (bit.y - y)^2)
+            
+            if distance < radius then
+                -- Unsettle this bit to force recalculation
+                bit.settled = false
+                bit.grounded = false
+                
+                -- Apply small random force to help start movement
+                bit.vx = bit.vx + love.math.random(-10, 10)
+                bit.vy = bit.vy - love.math.random(0, 15) -- Slight upward force
+                
+                affected_count = affected_count + 1
+            end
+        end
+    end
+    
+    log.debug("Avalanche triggered at " .. x .. "," .. y .. " affecting " .. affected_count .. " bits")
+    return affected_count
+end
+
+-- Find neighboring bits using breadth-first search
+function bits.findConnectedBits(source_bit, max_distance, max_count)
+    if not source_bit then return {} end
+    
+    local result = {source_bit}
+    local visited = {[source_bit] = true}
+    local queue = {source_bit}
+    local count = 1
+    
+    while #queue > 0 and count < max_count do
+        local current = table.remove(queue, 1)
+        local nearby = bits.getNearbyBits(current)
+        
+        for _, other_bit in ipairs(nearby) do
+            if not visited[other_bit] and other_bit.type == source_bit.type then
+                local dx = current.x - other_bit.x
+                local dy = current.y - other_bit.y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < max_distance then
+                    visited[other_bit] = true
+                    table.insert(result, other_bit)
+                    table.insert(queue, other_bit)
+                    count = count + 1
+                    
+                    if count >= max_count then
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    return result
+end
+
+-- Find bits near a point using natural selection pattern
+function bits.findBitsNearPoint(x, y, radius, max_count, type)
+    local nearby_bits = {}
+    local count = 0
+    
+    -- First, find the closest bit to serve as the source
+    local closest_bit = nil
+    local closest_distance = radius
+    
+    for _, bit in ipairs(bits.resource_bits) do
+        if bit.active and (not type or bit.type == type) then
+            local distance = math.sqrt((bit.x - x)^2 + (bit.y - y)^2)
+            
+            if distance < closest_distance then
+                closest_bit = bit
+                closest_distance = distance
+            end
+        end
+    end
+    
+    -- If we found a source bit, use BFS to find connected bits
+    if closest_bit then
+        nearby_bits = bits.findConnectedBits(closest_bit, radius * 1.5, max_count)
+    else
+        -- Fallback to simple radius search if no source bit found
+        for _, bit in ipairs(bits.resource_bits) do
+            if bit.active and (not type or bit.type == type) then
+                local distance = math.sqrt((bit.x - x)^2 + (bit.y - y)^2)
+                
+                if distance < radius then
+                    table.insert(nearby_bits, bit)
+                    count = count + 1
+                    
+                    if count >= max_count then
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Trigger avalanche at the collection point
+    if #nearby_bits > 0 then
+        bits.triggerAvalanche(x, y, radius * 1.5)
+    end
+    
+    return nearby_bits
 end
 
 -- Create bits from a resource
@@ -534,17 +710,15 @@ function bits.update(dt, ground_level, resource_banks, resources_collected, coll
             end
         end
     end
+    
+    -- Apply multi-pass settling for more realistic powder behavior
+    bits.multiPassSettle(dt, ground_level)
         
     -- Second pass: handle collisions using spatial grid
     for i = #bits.resource_bits, 1, -1 do
         local bit = bits.resource_bits[i]
         if bit.active then
             local nearby_bits = bits.getNearbyBits(bit)
-            
-            -- Apply powder settling behavior
-            if not bit.moving_to_bank then
-                bits.settlePowder(bit, nearby_bits, ground_level, dt)
-            end
             
             -- FIXED: Double-check ground collision after all physics
             if bit.y > ground_level - bit.size/2 then
