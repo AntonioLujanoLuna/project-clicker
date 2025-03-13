@@ -290,7 +290,7 @@ function game.updateSystems(dt)
     buildings.update(dt, game.resources_collected)
     
     -- Update pollution level
-    local new_pollution = pollution.update(dt, game.pollution_level, game.resources_collected, buildings, robots)
+    local new_pollution = pollution.update(dt, game.pollution_level, game.resources_collected, world.entities.buildings, world.entities.robots)
     if new_pollution and new_pollution ~= game.pollution_level then
         events.trigger("pollution_changed", new_pollution)
     end

@@ -2,6 +2,8 @@
 -- Manages pollution levels and effects
 
 local config = require("src.config")
+local world = require("src.world")
+local robotsModule = require("src.robots")  -- Import the robots module with a different name
 
 local pollution = {}
 
@@ -26,9 +28,32 @@ function pollution.update(dt, current_level, resources, buildings, robots)
         current_level = 0
     end
     
-    -- This would normally update pollution based on game activities
-    -- For now, we'll just apply the natural recovery
-    return math.max(0, current_level - NATURAL_RECOVERY * dt)
+    -- Calculate natural recovery
+    local recovery = NATURAL_RECOVERY * dt
+    
+    -- Apply reduction from recycler robots
+    local robot_reduction = 0
+    if robots then
+        -- Get reduction from robots module
+        robot_reduction = robotsModule.getPollutionReduction(robots) * dt  -- Use the robotsModule instead
+    end
+    
+    -- Calculate building contribution (some buildings like Solar Panels reduce pollution)
+    local building_effect = 0
+    if buildings then
+        -- Calculate buildings contribution
+        for _, building in ipairs(buildings) do
+            if building.pollution and building.pollution < 0 then -- Negative pollution means reduction
+                building_effect = building_effect + building.pollution * dt
+            end
+        end
+    end
+    
+    -- Apply all effects
+    local new_level = current_level - recovery - robot_reduction + building_effect
+    
+    -- Ensure pollution doesn't go below 0
+    return math.max(0, new_level)
 end
 
 function pollution.draw(pollution_level, camera_x, camera_y, screen_width, screen_height)

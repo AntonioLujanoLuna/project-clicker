@@ -4,6 +4,9 @@
 local config = require("src.config")
 local log = require("src.log")
 local events = require("src.events")
+local audio = require("src.audio")
+local bits = require("src.bits")
+local world = require("src.world")
 
 local robots = {}
 
@@ -104,9 +107,6 @@ robots.TYPES = {
     }
 }
 
--- Robot instance list (kept for backward compatibility)
-local robot_instances = {}
-
 -- Function to draw a pixel art robot
 local function drawPixelArt(pixels, x, y, scale, color, accent_color)
     scale = scale or 1
@@ -164,30 +164,100 @@ function robots.load()
     end
 end
 
+-- Helper function to find the nearest resource of a given type
+local function findNearestResource(world_resources, x, y, resource_type)
+    local nearest_resource = nil
+    local nearest_distance = math.huge
+    local nearest_index = nil
+    
+    for i, resource in ipairs(world_resources) do
+        -- Skip resources with no bits left
+        if resource.current_bits and resource.current_bits > 0 then
+            -- If resource_type is nil, find any type, otherwise match the specified type
+            if resource_type == nil or resource.type == resource_type then
+                local dx = resource.x - x
+                local dy = resource.y - y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < nearest_distance then
+                    nearest_resource = resource
+                    nearest_distance = distance
+                    nearest_index = i
+                end
+            end
+        end
+    end
+    
+    return nearest_resource, nearest_index, nearest_distance
+end
+
+-- Helper function to find the nearest resource bit of a given type
+local function findNearestBit(resource_bits, x, y, bit_type)
+    local nearest_bit = nil
+    local nearest_distance = math.huge
+    local nearest_index = nil
+    
+    for i, bit in ipairs(resource_bits) do
+        if bit.active and not bit.moving_to_bank and (bit_type == nil or bit.type == bit_type) then
+            local dx = bit.x - x
+            local dy = bit.y - y
+            local distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance < nearest_distance then
+                nearest_bit = bit
+                nearest_distance = distance
+                nearest_index = i
+            end
+        end
+    end
+    
+    return nearest_bit, nearest_index, nearest_distance
+end
+
 function robots.update(dt, resources, world_robots)
     -- Update all robot instances from the world
-    for _, robot in ipairs(world_robots) do
+    for i, robot in ipairs(world_robots) do
+        -- Update robot cooldown if it exists
+        if robot.cooldown then
+            robot.cooldown = math.max(0, robot.cooldown - dt)
+        else
+            robot.cooldown = 0
+        end
+        
+        -- Different behavior based on robot type
         if robot.type == "GATHERER" then
-            -- Implement state-based behavior
-            if robot.state == "idle" then
+            -- GATHERER BEHAVIOR
+            -- States: idle (looking for resource) -> moving (going to resource) -> clicking (generating bits)
+            
+            if robot.state == "idle" and robot.cooldown <= 0 then
                 -- Find a resource to gather
-                robot.state = "moving"
-                -- Find nearest resource (this will be implemented in world module)
-                events.trigger("robot_find_resource", robot)
-                events.trigger("robot_state_changed", robot, "moving")
-                log.debug("Robot " .. robot.type .. " is now moving to find resources")
+                local resource, resource_index = findNearestResource(world.entities.resources, robot.x, robot.y)
+                
+                if resource then
+                    -- Found a resource, let's move to it
+                    robot.target_resource = resource_index
+                    robot.target_x = resource.x
+                    robot.target_y = resource.y
+                    robot.state = "moving"
+                    events.trigger("robot_state_changed", robot, "moving")
+                    log.debug("Gatherer found resource at " .. resource.x .. "," .. resource.y)
+                else
+                    -- No resources found, wait a bit before trying again
+                    robot.cooldown = 1.0
+                end
             elseif robot.state == "moving" then
-                -- Move towards target
+                -- Move towards target resource
                 if robot.target_x and robot.target_y then
                     local dx = robot.target_x - robot.x
                     local dy = robot.target_y - robot.y
                     local distance = math.sqrt(dx*dx + dy*dy)
                     
                     if distance < 10 then
-                        robot.state = "working"
-                        robot.cooldown = 1 -- Start working timer
-                        events.trigger("robot_state_changed", robot, "working")
-                        log.debug("Robot " .. robot.type .. " has reached target and is now working")
+                        -- Reached the resource, start clicking
+                        robot.state = "clicking"
+                        robot.cooldown = 0.5 -- Time to perform click
+                        events.trigger("robot_state_changed", robot, "clicking")
+                        log.debug("Gatherer reached resource, starting to click")
                     else
                         -- Move towards target
                         local speed = 50 -- pixels per second
@@ -197,50 +267,216 @@ function robots.update(dt, resources, world_robots)
                 else
                     -- No target, go back to idle
                     robot.state = "idle"
-                    robot.cooldown = 0.5 -- Small cooldown before next task
+                    robot.cooldown = 0.5
                     events.trigger("robot_state_changed", robot, "idle")
-                    log.debug("Robot " .. robot.type .. " has no target, returning to idle")
+                    log.debug("Gatherer lost target, returning to idle")
                 end
-            elseif robot.state == "working" then
-                -- Perform work
+            elseif robot.state == "clicking" and robot.cooldown <= 0 then
+                -- Resource clicking action
+                local resource = world.entities.resources[robot.target_resource]
+                
+                if resource and resource.current_bits and resource.current_bits > 0 then
+                    -- Generate resource bits like a player click
+                    local bits_to_generate = math.min(5, resource.current_bits) -- Gatherers generate fewer bits than players
+                    local created_bits = bits.createBitsFromResource(resource, bits_to_generate, world.GROUND_LEVEL)
+                    
+                    -- Update the resource's bit count
+                    world.updateResource(robot.target_resource, bits_to_generate)
+                    
+                    -- Play click sound
+                    audio.playSound("click")
+                    
+                    log.debug("Gatherer clicked resource and generated " .. #created_bits .. " bits")
+                end
+                
+                -- Return to idle state to find next resource
+                robot.state = "idle"
+                robot.cooldown = 1.0 -- Cooldown before next action
+                robot.target_resource = nil
+                events.trigger("robot_state_changed", robot, "idle")
+            end
+            
+        elseif robot.type == "TRANSPORTER" then
+            -- TRANSPORTER BEHAVIOR
+            -- States: idle (looking for bits) -> moving_to_bit (going to bit) -> 
+            --         carrying (carrying bit to bank) -> depositing (at bank)
+            
+            if robot.state == "idle" and robot.cooldown <= 0 then
+                -- Find resource bits to transport (any type for now)
+                local bit, bit_index = findNearestBit(bits.resource_bits, robot.x, robot.y)
+                
+                if bit then
+                    -- Found a bit, let's move to it
+                    robot.target_bit_index = bit_index
+                    robot.target_bit = bit
+                    robot.target_x = bit.x
+                    robot.target_y = bit.y
+                    robot.state = "moving_to_bit"
+                    events.trigger("robot_state_changed", robot, "moving_to_bit")
+                    log.debug("Transporter found bit at " .. bit.x .. "," .. bit.y)
+                else
+                    -- No bits found, wait a bit before trying again
+                    robot.cooldown = 1.0
+                end
+            elseif robot.state == "moving_to_bit" then
+                -- Check if the target bit still exists and is valid
+                if not robot.target_bit or not robot.target_bit.active or robot.target_bit.moving_to_bank then
+                    -- Bit is no longer valid, return to idle
+                    robot.state = "idle"
+                    robot.cooldown = 0.5
+                    events.trigger("robot_state_changed", robot, "idle")
+                    log.debug("Transporter's target bit is no longer valid")
+                    goto continue
+                end
+                
+                -- Update target position as the bit might be moving
+                robot.target_x = robot.target_bit.x
+                robot.target_y = robot.target_bit.y
+                
+                -- Move towards target bit
+                local dx = robot.target_x - robot.x
+                local dy = robot.target_y - robot.y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < 10 then
+                    -- Reached the bit, pick it up
+                    robot.state = "carrying"
+                    robot.carried_bit = robot.target_bit
+                    robot.carried_bit.moving_to_bank = true
+                    
+                    -- Set target to the appropriate bank
+                    local bank = world.resource_banks[robot.carried_bit.type]
+                    if bank then
+                        robot.target_x = bank.x
+                        robot.target_y = bank.y
+                        events.trigger("robot_state_changed", robot, "carrying")
+                        log.debug("Transporter picked up bit and is heading to bank")
+                    else
+                        -- No bank found for this bit type, drop it
+                        robot.carried_bit.moving_to_bank = false
+                        robot.state = "idle"
+                        robot.cooldown = 0.5
+                        events.trigger("robot_state_changed", robot, "idle")
+                        log.debug("Transporter couldn't find bank for bit type " .. robot.carried_bit.type)
+                    end
+                else
+                    -- Move towards bit
+                    local speed = 70 -- pixels per second, transporters are faster
+                    robot.x = robot.x + (dx/distance) * speed * dt
+                    robot.y = robot.y + (dy/distance) * speed * dt
+                end
+            elseif robot.state == "carrying" then
+                -- Check if we still have a valid carried bit
+                if not robot.carried_bit or not robot.carried_bit.active then
+                    -- Bit is no longer valid, return to idle
+                    robot.state = "idle"
+                    robot.cooldown = 0.5
+                    events.trigger("robot_state_changed", robot, "idle")
+                    log.debug("Transporter's carried bit is no longer valid")
+                    goto continue
+                end
+                
+                -- Move towards resource bank
+                local dx = robot.target_x - robot.x
+                local dy = robot.target_y - robot.y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < 15 then
+                    -- Reached the bank, deposit the bit
+                    robot.state = "depositing"
+                    robot.cooldown = 0.3
+                    events.trigger("robot_state_changed", robot, "depositing")
+                    log.debug("Transporter reached bank, depositing bit")
+                else
+                    -- Move towards bank
+                    local speed = 70 -- pixels per second
+                    robot.x = robot.x + (dx/distance) * speed * dt
+                    robot.y = robot.y + (dy/distance) * speed * dt
+                    
+                    -- Move the carried bit with the robot
+                    robot.carried_bit.x = robot.x
+                    robot.carried_bit.y = robot.y - 10 -- Position bit slightly above robot
+                end
+            elseif robot.state == "depositing" and robot.cooldown <= 0 then
+                -- Add resource to collection
+                if robot.carried_bit and robot.carried_bit.active and robot.carried_bit.type then
+                    resources[robot.carried_bit.type] = resources[robot.carried_bit.type] or 0
+                    resources[robot.carried_bit.type] = resources[robot.carried_bit.type] + 1
+                    
+                    -- Play collection sound
+                    audio.playSound("collect")
+                    
+                    -- Create a collection animation
+                    events.trigger("resource_collected", robot.carried_bit.type, 1, robot.x, robot.y)
+                    
+                    -- Remove the bit from the world
+                    for i, bit in ipairs(bits.resource_bits) do
+                        if bit == robot.carried_bit then
+                            bits.releaseBitToPool(bit)
+                            table.remove(bits.resource_bits, i)
+                            break
+                        end
+                    end
+                    
+                    log.debug("Transporter deposited bit of type " .. robot.carried_bit.type)
+                end
+                
+                -- Return to idle
+                robot.carried_bit = nil
+                robot.state = "idle"
+                robot.cooldown = 0.5 -- Short cooldown before finding next bit
+                events.trigger("robot_state_changed", robot, "idle")
+            end
+            
+        elseif robot.type == "RECYCLER" then
+            -- RECYCLER BEHAVIOR
+            -- States: idle -> roaming (moving randomly) -> recycling (reducing pollution)
+            
+            if robot.state == "idle" and robot.cooldown <= 0 then
+                -- Choose a random location to roam to
+                robot.target_x = robot.x + love.math.random(-100, 100)
+                robot.target_y = world.GROUND_LEVEL - love.math.random(5, 15)
+                robot.state = "roaming"
+                robot.cooldown = love.math.random(2, 5) -- Random roam time
+                events.trigger("robot_state_changed", robot, "roaming")
+                log.debug("Recycler started roaming to " .. robot.target_x .. "," .. robot.target_y)
+            elseif robot.state == "roaming" then
+                -- Move towards target location
+                local dx = robot.target_x - robot.x
+                local dy = robot.target_y - robot.y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < 10 or robot.cooldown <= 0 then
+                    -- Reached target or roam time expired, start recycling
+                    robot.state = "recycling"
+                    robot.cooldown = love.math.random(3, 6) -- Random recycling time
+                    events.trigger("robot_state_changed", robot, "recycling")
+                    log.debug("Recycler started recycling")
+                else
+                    -- Move towards target
+                    local speed = 30 -- pixels per second, recyclers are slower
+                    robot.x = robot.x + (dx/distance) * speed * dt
+                    robot.y = robot.y + (dy/distance) * speed * dt
+                    robot.cooldown = robot.cooldown - dt
+                end
+            elseif robot.state == "recycling" then
+                -- Actively reduce pollution while recycling
+                -- This is handled in the pollution module based on number of recyclers
+                
+                -- Visual effect for recycling - could add particle effects here
+                
                 robot.cooldown = robot.cooldown - dt
                 if robot.cooldown <= 0 then
-                    -- Work complete, gather resource
-                    local resource_type = "wood" -- Default to wood for GATHERER
-                    
-                    -- Trigger collection event
-                    events.trigger("resource_collected", resource_type, 1, robot.x, robot.y)
-                    
-                    -- Return to idle
+                    -- Recycling complete, return to idle
                     robot.state = "idle"
-                    robot.cooldown = 0.5 -- Small cooldown before next task
+                    robot.cooldown = 1.0
                     events.trigger("robot_state_changed", robot, "idle")
-                    log.debug("Robot " .. robot.type .. " completed work and collected " .. resource_type)
+                    log.debug("Recycler finished recycling")
                 end
             end
-        elseif robot.type == "TRANSPORTER" then
-            -- Transporter robots improve resource collection efficiency
-            -- This is a passive effect, no need for state-based behavior
-            -- The efficiency bonus is applied in the resource collection event handler
-        elseif robot.type == "RECYCLER" then
-            -- Recycler robots reduce pollution
-            -- This is a passive effect, no need for state-based behavior
-            -- The pollution reduction is applied in the pollution update function
         end
-    end
-    
-    -- For backward compatibility, also update robot_instances
-    for _, robot in ipairs(robot_instances) do
-        if robot.type == "Gatherer" then
-            -- Gatherer robots collect resources
-            local resource_types = {"wood", "stone", "food"}
-            local target_resource = resource_types[math.random(1, #resource_types)]
-            
-            -- Convert to lowercase to match resources_collected keys
-            local resource_key = target_resource:lower()
-            if not resources[resource_key] then resources[resource_key] = 0 end
-            resources[resource_key] = resources[resource_key] + robot.gather_rate * dt
-        end
+        
+        ::continue::
     end
 end
 
@@ -264,21 +500,35 @@ function robots.draw(robot_list)
                 {1, 1, 1}, -- Main color (white)
                 robot_type.accent_color -- Accent color specific to robot type
             )
+            
+            -- Draw current state above the robot
+            love.graphics.setColor(1, 1, 1, 0.8)
+            love.graphics.printf(
+                robot.state or "idle",
+                robot.x - 30, 
+                robot.y - robot_type.height * scale - 15, 
+                60, 
+                "center"
+            )
+            
+            -- Draw carrying indicator for transporters carrying bits
+            if robot.type == "TRANSPORTER" and robot.state == "carrying" and robot.carried_bit then
+                love.graphics.setColor(0.8, 0.8, 0.2)
+                love.graphics.circle("fill", robot.x, robot.y - 20, 3)
+            end
         else
             -- Fallback to simple square if pixel art not available
             love.graphics.setColor(1, 1, 1)
             love.graphics.rectangle("fill", 
                 robot.x - robot_type.width/2, 
                 robot.y - robot_type.height/2, 
-                robot_type.width, 
-                robot_type.height)
+                robot_type.width, robot_type.height)
             
             love.graphics.setColor(1, 1, 1)
             love.graphics.rectangle("line", 
                 robot.x - robot_type.width/2, 
                 robot.y - robot_type.height/2, 
-                robot_type.width, 
-                robot_type.height)
+                robot_type.width, robot_type.height)
             
             -- Draw robot type indicator
             love.graphics.setColor(0, 0, 0)
@@ -306,75 +556,27 @@ function robots.canAfford(robot_type, resources)
     return true
 end
 
--- Build a new robot
-function robots.build(robot_type, resources)
-    if robots.canAfford(robot_type, resources) then
-        -- Subtract cost (with safety check)
-        for resource_name, amount in pairs(robot_type.cost) do
-            -- Initialize the resource if it doesn't exist
-            if resources[resource_name] == nil then
-                resources[resource_name] = 0
-            end
-            -- Now safely subtract
-            resources[resource_name] = resources[resource_name] - amount
-        end
-        
-        -- Create new robot instance
-        local new_robot = {
-            type = robot_type.name,
-            description = robot_type.description,
-            gather_rate = robot_type.gather_rate,
-            efficiency_bonus = robot_type.efficiency_bonus,
-            pollution_reduction = robot_type.pollution_reduction,
-            pollution = robot_type.pollution,
-            color = robot_type.color,
-            x = robot_type.x + math.random(-50, 50), -- Random position
-            y = robot_type.y + math.random(-50, 50),
-            width = robot_type.width,
-            height = robot_type.height
-        }
-        
-        table.insert(robot_instances, new_robot)
-        return true
-    end
-    
-    return false
-end
-
--- Get total resource gather rate bonus from all transporter robots
-function robots.getGatherBonus()
-    local bonus = 1.0 -- Base multiplier (100%)
-    
-    for _, robot in ipairs(robot_instances) do
-        if robot.type == "Transporter" and robot.efficiency_bonus then
-            bonus = bonus + robot.efficiency_bonus
-        end
-    end
-    
-    return bonus
-end
-
 -- Get total pollution reduction from all recycler robots
-function robots.getPollutionReduction()
-    local reduction = 1.0 -- Base multiplier (100%)
+function robots.getPollutionReduction(world_robots)
+    local reduction = 0
     
-    for _, robot in ipairs(robot_instances) do
-        if robot.type == "Recycler" and robot.pollution_reduction then
-            reduction = reduction - robot.pollution_reduction
+    for _, robot in ipairs(world_robots) do
+        if robot.type == "RECYCLER" and robot.state == "recycling" then
+            -- Each actively recycling robot reduces pollution by its reduction rate
+            reduction = reduction + config.robots.types.RECYCLER.pollution_reduction
         end
     end
     
-    -- Minimum 10% pollution
-    return math.max(0.1, reduction)
+    return reduction
 end
 
 -- Calculate total pollution from all robots (per minute)
-function robots.getTotalPollution()
+function robots.getTotalPollution(world_robots)
     local total = 0
-    for _, robot in ipairs(robot_instances) do
-        total = total + robot.pollution
+    for _, robot in ipairs(world_robots) do
+        total = total + robots.TYPES[robot.type].pollution
     end
     return total
 end
 
-return robots 
+return robots

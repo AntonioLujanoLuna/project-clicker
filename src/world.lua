@@ -552,6 +552,56 @@ function world.updateResource(resource_index, bits_used)
     return false -- Resource was not depleted
 end
 
+-- Find the nearest resource of a specific type
+function world.findNearestResourceOfType(resource_type, x, y)
+    local nearest_resource = nil
+    local nearest_index = nil
+    local nearest_distance = math.huge
+    
+    for i, resource in ipairs(world.entities.resources) do
+        -- Skip resources with no bits left
+        if resource.current_bits and resource.current_bits > 0 then
+            -- If resource_type is nil, find any type, otherwise match the specified type
+            if resource_type == nil or resource.type == resource_type then
+                local dx = resource.x - x
+                local dy = resource.y - y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < nearest_distance then
+                    nearest_resource = resource
+                    nearest_index = i
+                    nearest_distance = distance
+                end
+            end
+        end
+    end
+    
+    return nearest_resource, nearest_index, nearest_distance
+end
+
+-- Find the nearest resource bit of a specific type
+function world.findNearestBit(bit_type, x, y)
+    local nearest_bit = nil
+    local nearest_index = nil
+    local nearest_distance = math.huge
+    
+    for i, bit in ipairs(bits.resource_bits) do
+        if bit.active and not bit.moving_to_bank and (bit_type == nil or bit.type == bit_type) then
+            local dx = bit.x - x
+            local dy = bit.y - y
+            local distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance < nearest_distance then
+                nearest_bit = bit
+                nearest_index = i
+                nearest_distance = distance
+            end
+        end
+    end
+    
+    return nearest_bit, nearest_index, nearest_distance
+end
+
 -- Find a resource by type
 function world.findResourceByType(resource_type)
     for i, resource in ipairs(world.entities.resources) do
