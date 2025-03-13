@@ -170,6 +170,48 @@ function game.setupEventHandlers()
         audio.playSound("robot_create")
         log.info("Robot created event handled: " .. robot_type_key)
     end)
+    
+    -- Robot state change event
+    events.on("robot_state_changed", function(robot, new_state)
+        log.debug("Robot " .. robot.type .. " changed state to: " .. new_state)
+        -- Could trigger animations, sounds, etc.
+        if new_state == "working" then
+            audio.playSound("robot_work")
+        elseif new_state == "idle" then
+            -- Maybe play an idle sound
+        end
+    end)
+    
+    -- Building construction event
+    events.on("building_constructed", function(building_type, x, y)
+        -- Visual/audio feedback when building is constructed
+        audio.playSound("build")
+        log.info("Building constructed: " .. building_type .. " at position " .. x .. "," .. y)
+    end)
+    
+    -- Building production event
+    events.on("building_producing", function(building_type, resource_type, amount, x, y)
+        -- Trigger when a building produces resources
+        events.trigger("resource_collected", resource_type, amount, x, y)
+        log.debug("Building " .. building_type .. " produced " .. amount .. " " .. resource_type)
+    end)
+    
+    -- UI events
+    events.on("ui_panel_opened", function(panel_name)
+        log.debug("Panel opened: " .. panel_name)
+        -- Could trigger tutorial steps, sounds, etc.
+        audio.playSound("ui_open")
+    end)
+    
+    events.on("ui_panel_closed", function(panel_name)
+        log.debug("Panel closed: " .. panel_name)
+        audio.playSound("ui_close")
+    end)
+    
+    events.on("ui_button_clicked", function(button_name)
+        log.debug("Button clicked: " .. button_name)
+        audio.playSound("ui_click")
+    end)
 end
 
 -- Create particle systems for visual feedback
@@ -241,8 +283,8 @@ function game.updateSystems(dt)
     -- Update resources
     resources.update(dt)
     
-    -- Update robots
-    robots.update(dt, game.resources_collected)
+    -- Update robots - pass world.entities.robots
+    robots.update(dt, game.resources_collected, world.entities.robots)
     
     -- Update buildings
     buildings.update(dt, game.resources_collected)

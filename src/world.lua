@@ -85,7 +85,45 @@ function world.load()
         }}
     }
     
+    -- Set up event handlers
+    world.setupEventHandlers()
+    
     log.info("World module loaded with dimensions " .. world.WIDTH .. "x" .. world.HEIGHT)
+end
+
+-- Set up event handlers for world-related events
+function world.setupEventHandlers()
+    -- Robot find resource event
+    events.on("robot_find_resource", function(robot)
+        -- Find the nearest resource based on robot type
+        local resource_type = "wood" -- Default for GATHERER
+        if robot.type == "GATHERER" then
+            -- Gatherers can collect any resource type
+            local nearest_resource, nearest_distance = nil, math.huge
+            
+            -- Find the nearest resource of any type
+            for i, resource in ipairs(world.entities.resources) do
+                local dx = resource.x - robot.x
+                local dy = resource.y - robot.y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < nearest_distance then
+                    nearest_resource = resource
+                    nearest_distance = distance
+                end
+            end
+            
+            -- Set the target if a resource was found
+            if nearest_resource then
+                robot.target_x = nearest_resource.x
+                robot.target_y = nearest_resource.y
+                log.debug("Robot found resource at " .. nearest_resource.x .. "," .. nearest_resource.y)
+            else
+                -- No resources found, robot will return to idle state
+                log.debug("Robot could not find any resources")
+            end
+        end
+    end)
 end
 
 -- Function to check if a position is too close to any resource bank

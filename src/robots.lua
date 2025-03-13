@@ -2,6 +2,8 @@
 -- Manages robot creation and behavior
 
 local config = require("src.config")
+local log = require("src.log")
+local events = require("src.events")
 
 local robots = {}
 
@@ -102,7 +104,7 @@ robots.TYPES = {
     }
 }
 
--- Robot instance list
+-- Robot instance list (kept for backward compatibility)
 local robot_instances = {}
 
 -- Function to draw a pixel art robot
@@ -162,18 +164,83 @@ function robots.load()
     end
 end
 
-function robots.update(dt, resources)
-    -- Update all robot instances
+function robots.update(dt, resources, world_robots)
+    -- Update all robot instances from the world
+    for _, robot in ipairs(world_robots) do
+        if robot.type == "GATHERER" then
+            -- Implement state-based behavior
+            if robot.state == "idle" then
+                -- Find a resource to gather
+                robot.state = "moving"
+                -- Find nearest resource (this will be implemented in world module)
+                events.trigger("robot_find_resource", robot)
+                events.trigger("robot_state_changed", robot, "moving")
+                log.debug("Robot " .. robot.type .. " is now moving to find resources")
+            elseif robot.state == "moving" then
+                -- Move towards target
+                if robot.target_x and robot.target_y then
+                    local dx = robot.target_x - robot.x
+                    local dy = robot.target_y - robot.y
+                    local distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance < 10 then
+                        robot.state = "working"
+                        robot.cooldown = 1 -- Start working timer
+                        events.trigger("robot_state_changed", robot, "working")
+                        log.debug("Robot " .. robot.type .. " has reached target and is now working")
+                    else
+                        -- Move towards target
+                        local speed = 50 -- pixels per second
+                        robot.x = robot.x + (dx/distance) * speed * dt
+                        robot.y = robot.y + (dy/distance) * speed * dt
+                    end
+                else
+                    -- No target, go back to idle
+                    robot.state = "idle"
+                    robot.cooldown = 0.5 -- Small cooldown before next task
+                    events.trigger("robot_state_changed", robot, "idle")
+                    log.debug("Robot " .. robot.type .. " has no target, returning to idle")
+                end
+            elseif robot.state == "working" then
+                -- Perform work
+                robot.cooldown = robot.cooldown - dt
+                if robot.cooldown <= 0 then
+                    -- Work complete, gather resource
+                    local resource_type = "wood" -- Default to wood for GATHERER
+                    
+                    -- Trigger collection event
+                    events.trigger("resource_collected", resource_type, 1, robot.x, robot.y)
+                    
+                    -- Return to idle
+                    robot.state = "idle"
+                    robot.cooldown = 0.5 -- Small cooldown before next task
+                    events.trigger("robot_state_changed", robot, "idle")
+                    log.debug("Robot " .. robot.type .. " completed work and collected " .. resource_type)
+                end
+            end
+        elseif robot.type == "TRANSPORTER" then
+            -- Transporter robots improve resource collection efficiency
+            -- This is a passive effect, no need for state-based behavior
+            -- The efficiency bonus is applied in the resource collection event handler
+        elseif robot.type == "RECYCLER" then
+            -- Recycler robots reduce pollution
+            -- This is a passive effect, no need for state-based behavior
+            -- The pollution reduction is applied in the pollution update function
+        end
+    end
+    
+    -- For backward compatibility, also update robot_instances
     for _, robot in ipairs(robot_instances) do
         if robot.type == "Gatherer" then
             -- Gatherer robots collect resources
-            local resource_types = {"Wood", "Stone", "Food"}
+            local resource_types = {"wood", "stone", "food"}
             local target_resource = resource_types[math.random(1, #resource_types)]
             
-            resources[target_resource] = resources[target_resource] + robot.gather_rate * dt
+            -- Convert to lowercase to match resources_collected keys
+            local resource_key = target_resource:lower()
+            if not resources[resource_key] then resources[resource_key] = 0 end
+            resources[resource_key] = resources[resource_key] + robot.gather_rate * dt
         end
-        
-        -- Other robot types have passive effects (handled elsewhere)
     end
 end
 

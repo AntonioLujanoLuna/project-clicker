@@ -2,6 +2,8 @@
 -- Manages construction and production of buildings
 
 local config = require("src.config")
+local log = require("src.log")
+local events = require("src.events")
 
 local buildings = {}
 
@@ -201,7 +203,11 @@ function buildings.update(dt, resources)
     for _, building in ipairs(building_instances) do
         -- Add resources based on production rate
         for resource_name, amount_per_second in pairs(building.production) do
-            resources[resource_name] = resources[resource_name] + amount_per_second * dt
+            local amount = amount_per_second * dt
+            resources[resource_name] = resources[resource_name] + amount
+            
+            -- Trigger building production event
+            events.trigger("building_producing", building.type, resource_name, amount, building.x, building.y)
         end
     end
 end
@@ -297,6 +303,11 @@ function buildings.build(building_type, resources)
         }
         
         table.insert(building_instances, new_building)
+        
+        -- Trigger building construction event
+        events.trigger("building_constructed", new_building.type, new_building.x, new_building.y)
+        log.info("Building constructed: " .. new_building.name)
+        
         return true
     end
     

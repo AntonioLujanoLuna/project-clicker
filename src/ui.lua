@@ -659,6 +659,9 @@ function ui.mousepressed(x, y, button, game)
         -- Check panel button clicks
         for _, ui_button in ipairs(buttons) do
             if ui_button.hover then
+                -- Trigger button click event
+                events.trigger("ui_button_clicked", ui_button.name or ui_button.type)
+                
                 if ui_button.type == "robot" then
                     -- Try to build the robot using resources_collected instead of resources
                     local robot_type = robots.TYPES[ui_button.robot_type]
@@ -683,10 +686,10 @@ function ui.mousepressed(x, y, button, game)
                         -- Use the event system to create a robot
                         events.trigger("robot_created", ui_button.robot_type)
                         
-                        print("Built a " .. ui_button.name .. " robot!")
+                        log.info("Built a " .. ui_button.name .. " robot!")
                         return true
                     else
-                        print("Not enough resources to build " .. ui_button.name)
+                        log.warning("Not enough resources to build " .. ui_button.name)
                         return true
                     end
                 elseif ui_button.type == "research" then
@@ -942,29 +945,73 @@ function ui.togglePanel(panel_name)
         research_panel.visible = false
         help_panel.visible = false
         settings_panel.visible = false
+        
+        -- Trigger appropriate event
+        if robot_panel.visible then
+            events.trigger("ui_panel_opened", "robot")
+        else
+            events.trigger("ui_panel_closed", "robot")
+        end
     elseif panel_name == "research" then
         research_panel.visible = not research_panel.visible
         robot_panel.visible = false
         help_panel.visible = false
         settings_panel.visible = false
+        
+        -- Trigger appropriate event
+        if research_panel.visible then
+            events.trigger("ui_panel_opened", "research")
+        else
+            events.trigger("ui_panel_closed", "research")
+        end
     elseif panel_name == "help" then
         help_panel.visible = not help_panel.visible
         robot_panel.visible = false
         research_panel.visible = false
         settings_panel.visible = false
+        
+        -- Trigger appropriate event
+        if help_panel.visible then
+            events.trigger("ui_panel_opened", "help")
+        else
+            events.trigger("ui_panel_closed", "help")
+        end
     elseif panel_name == "settings" then
         settings_panel.visible = not settings_panel.visible
         robot_panel.visible = false
         research_panel.visible = false
         help_panel.visible = false
+        
+        -- Trigger appropriate event
+        if settings_panel.visible then
+            events.trigger("ui_panel_opened", "settings")
+        else
+            events.trigger("ui_panel_closed", "settings")
+        end
     end
 end
 
 function ui.closeAllPanels()
-    robot_panel.visible = false
-    research_panel.visible = false
-    help_panel.visible = false
-    settings_panel.visible = false
+    -- Close all panels and trigger events for any that were open
+    if robot_panel.visible then
+        robot_panel.visible = false
+        events.trigger("ui_panel_closed", "robot")
+    end
+    
+    if research_panel.visible then
+        research_panel.visible = false
+        events.trigger("ui_panel_closed", "research")
+    end
+    
+    if help_panel.visible then
+        help_panel.visible = false
+        events.trigger("ui_panel_closed", "help")
+    end
+    
+    if settings_panel.visible then
+        settings_panel.visible = false
+        events.trigger("ui_panel_closed", "settings")
+    end
 end
 
 -- Function to increase UI scale
