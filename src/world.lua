@@ -4,6 +4,8 @@
 local config = require("src.config")
 local log = require("src.log")
 local bits = require("src.bits")
+local camera = require("src.camera")  
+local events = require("src.events")
 
 local world = {}
 
@@ -491,6 +493,7 @@ function world.addRobot(robot_type_key, robots_config)
     }
     
     table.insert(world.entities.robots, robot)
+    log.info("Robot created: " .. robot_type_key .. " at position " .. robot.x .. "," .. robot.y)
     return robot
 end
 
@@ -502,6 +505,8 @@ function world.updateResource(resource_index, bits_used)
         
         -- Remove resource if depleted
         if resource.current_bits <= 0 then
+            -- Trigger resource depleted event before removing the resource
+            events.trigger("resource_depleted", resource.type, resource.x, resource.y)
             table.remove(world.entities.resources, resource_index)
             return true -- Resource was depleted
         end

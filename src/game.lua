@@ -17,6 +17,7 @@ local audio = require("src.audio")
 local world = require("src.world")
 local input = require("src.input")
 local tutorial = require("src.tutorial")
+local events = require("src.events")  -- Add the events module
 
 local game = {}
 
@@ -47,24 +48,18 @@ game.last_auto_save = 0
 game.resource_particles = {}
 
 -- Event system for decoupling game systems
-game.events = {}
-game.event_handlers = {}
+-- Remove these lines as we're now using the events module
+-- game.events = {}
+-- game.event_handlers = {}
 
--- Register an event handler
+-- Register an event handler (redirect to events module)
 function game.on(event_name, handler_function)
-    if not game.event_handlers[event_name] then
-        game.event_handlers[event_name] = {}
-    end
-    table.insert(game.event_handlers[event_name], handler_function)
+    events.on(event_name, handler_function)
 end
 
--- Trigger an event
+-- Trigger an event (redirect to events module)
 function game.trigger(event_name, ...)
-    if game.event_handlers[event_name] then
-        for _, handler in ipairs(game.event_handlers[event_name]) do
-            handler(...)
-        end
-    end
+    events.trigger(event_name, ...)
 end
 
 -- Initialize the game
@@ -113,7 +108,7 @@ end
 -- Set up event handlers for game systems
 function game.setupEventHandlers()
     -- Resource collection event
-    game.on("resource_collected", function(resource_type, amount, x, y)
+    events.on("resource_collected", function(resource_type, amount, x, y)
         -- Update resource count
         if not game.resources_collected[resource_type] then
             game.resources_collected[resource_type] = 0
@@ -136,7 +131,7 @@ function game.setupEventHandlers()
     end)
     
     -- Resource depleted event
-    game.on("resource_depleted", function(resource_type, x, y)
+    events.on("resource_depleted", function(resource_type, x, y)
         -- Visual feedback
         if game.resource_particles[resource_type] then
             game.resource_particles[resource_type]:setPosition(x, y)
@@ -150,7 +145,7 @@ function game.setupEventHandlers()
     end)
     
     -- Auto-save event
-    game.on("auto_save", function()
+    events.on("auto_save", function()
         local success, message = game.saveGame()
         if success then
             log.info("Auto-saved game.")
@@ -160,13 +155,20 @@ function game.setupEventHandlers()
     end)
     
     -- Pollution change event
-    game.on("pollution_changed", function(new_level)
+    events.on("pollution_changed", function(new_level)
         game.pollution_level = new_level
     end)
     
     -- Research points earned event
-    game.on("research_points_earned", function(amount)
+    events.on("research_points_earned", function(amount)
         game.research_points = game.research_points + amount
+    end)
+    
+    -- Robot creation event
+    events.on("robot_created", function(robot_type_key)
+        local robot = world.addRobot(robot_type_key, robots.TYPES)
+        audio.playSound("robot_create")
+        log.info("Robot created event handled: " .. robot_type_key)
     end)
 end
 
@@ -248,12 +250,12 @@ function game.updateSystems(dt)
     -- Update pollution level
     local new_pollution = pollution.update(dt, game.pollution_level, game.resources_collected, buildings, robots)
     if new_pollution and new_pollution ~= game.pollution_level then
-        game.trigger("pollution_changed", new_pollution)
+        events.trigger("pollution_changed", new_pollution)
     end
     
     -- Generate research points over time (very slowly)
     local research_earned = 0.01 * dt
-    game.trigger("research_points_earned", research_earned)
+    events.trigger("research_points_earned", research_earned)
     
     -- Update UI
     ui.update(dt)
@@ -278,7 +280,7 @@ end
 function game.updateAutoSave(dt)
     game.last_auto_save = game.last_auto_save + dt
     if game.last_auto_save >= game.auto_save_interval then
-        game.trigger("auto_save")
+        events.trigger("auto_save")
         game.last_auto_save = 0
     end
 end
@@ -308,11 +310,8 @@ function game.updateAutoCollection(dt)
                         -- Auto-collect this resource
                         game.collectResource(resource.type, bits_to_collect, resource.x, resource.y)
                         
-                        -- Decrement the resource's current bits
-                        resource.current_bits = resource.current_bits - bits_to_collect
-                        
                         -- Trigger resource collection event
-                        game.trigger("resource_collected", resource.type, bits_to_collect, resource.x, resource.y)
+                        events.trigger("resource_collected", resource.type, bits_to_collect, resource.x, resource.y)
                         
                         -- Reset cooldown (shorter for auto-collection)
                         game.auto_collect_cooldown = 1.5
@@ -323,7 +322,7 @@ function game.updateAutoCollection(dt)
                         -- If resource is depleted, remove it from the world
                         if resource.current_bits <= 0 then
                             -- Trigger resource depleted event
-                            game.trigger("resource_depleted", resource.type, resource.x, resource.y)
+                            events.trigger("resource_depleted", resource.type, resource.x, resource.y)
                             
                             -- Remove the resource
                             table.remove(world.entities.resources, i)
@@ -434,7 +433,11 @@ end
 
 -- Add a robot to the world
 function game.addRobot(robot_type_key)
-    return world.addRobot(robot_type_key, robots.TYPES)
+    -- Trigger the robot_created event instead of directly calling world.addRobot
+    events.trigger("robot_created", robot_type_key)
+    -- We don't need to call world.addRobot here as it's handled by the event handler
+    -- Return nil for now, we'll improve this in a future update
+    return nil
 end
 
 -- Check for resource clicks

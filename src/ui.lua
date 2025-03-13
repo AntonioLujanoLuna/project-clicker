@@ -6,6 +6,7 @@ local log = require("src.log")
 local audio = require("src.audio")
 local tutorial = require("src.tutorial")
 local world = require("src.world")
+local events = require("src.events")
 
 local ui = {}
 
@@ -679,8 +680,8 @@ function ui.mousepressed(x, y, button, game)
                             game.resources_collected[resource_key] = game.resources_collected[resource_key] - amount
                         end
                         
-                        -- Create a robot in the game world with the correct type
-                        local robot_entity = game.addRobot(ui_button.robot_type)
+                        -- Use the event system to create a robot
+                        events.trigger("robot_created", ui_button.robot_type)
                         
                         print("Built a " .. ui_button.name .. " robot!")
                         return true
