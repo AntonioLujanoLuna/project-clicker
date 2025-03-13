@@ -724,16 +724,12 @@ function game.update(dt)
             game.addBitToGrid(bit)
             
             -- Ground collision
-        if bit.y > game.GROUND_LEVEL - bit.size/2 then
-            bit.y = game.GROUND_LEVEL - bit.size/2
-            bit.vy = 0
-                bit.vx = bit.vx * 0.3
-            
-            if math.abs(bit.vx) < 5 then
-                bit.vx = 0
-                bit.grounded = true
+            if bit.y > game.GROUND_LEVEL - bit.size/2 then
+                bit.y = game.GROUND_LEVEL - bit.size/2
+                bit.vy = 0
+                bit.vx = bit.vx * 0.5  -- Less friction for more sliding
+                bit.grounded = true    -- Always mark as grounded when hitting ground
             end
-        end
         
             -- Reset grounded flag if above ground
         if bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
@@ -839,6 +835,16 @@ function game.update(dt)
                 table.remove(game.resource_bits, i)
                 log.debug("Removed old resource bit")
             end
+        end
+    end
+end
+
+function game.debugPhysics()
+    log.info("Debug Physics: checking resource bit velocities")
+    for i, bit in ipairs(game.resource_bits) do
+        if bit.active then
+            log.info(string.format("Bit #%d: vx=%.1f vy=%.1f active=%s grounded=%s", 
+                i, bit.vx, bit.vy, tostring(bit.active), tostring(bit.grounded)))
         end
     end
 end
@@ -1093,8 +1099,8 @@ function game.createBitsFromResource(resource, bits_to_generate)
             bit.type = resource.type
             bit.size = 3
             -- IMPORTANT: Give strong initial velocities to make bits visibly move
-            bit.vx = love.math.random(-50, 50)  -- Increased range for more movement
-            bit.vy = -love.math.random(150, 300) -- Stronger upward velocity
+            bit.vx = love.math.random(-120, 120)  -- Much stronger horizontal movement
+            bit.vy = -love.math.random(250, 400) -- Much stronger upward velocity
             bit.grounded = false
             bit.moving_to_bank = false
             bit.creation_time = love.timer.getTime()

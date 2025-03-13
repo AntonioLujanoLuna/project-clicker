@@ -117,7 +117,7 @@ function love.mousepressed(x, y, button)
             -- Check resource bit clicks
             local bit_clicked = false
             for i, bit in ipairs(game.resource_bits) do
-                if bit.active and math.abs(wx - bit.x) < bit.size/2 and math.abs(wy - bit.y) < bit.size/2 and bit.grounded then
+                if bit.active and math.abs(wx - bit.x) < bit.size/2 and math.abs(wy - bit.y) < bit.size/2 then
                     -- Move to resource bank if clicked
                     local bank_x = game.resource_banks[bit.type].x
                     local bank_y = game.resource_banks[bit.type].y
