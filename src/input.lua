@@ -166,25 +166,77 @@ end
 
 -- Handle keyboard events
 function input.keypressed(key, camera, game, ui, tutorial)
-    -- Camera shortcuts
-    if key == "r" then
-        camera.resetPosition()
-    elseif key == "e" then
-        local enabled = camera.toggleEdgeScrolling()
-        log.info("Edge scrolling " .. (enabled and "enabled" or "disabled"))
-    elseif key == "c" then
-        local enabled = game.toggleAutoCollect()
-        log.info("Auto-collection " .. (enabled and "enabled" or "disabled"))
+    -- Use safe call to prevent crashes
+    local success, message = pcall(function()
+        log.info("Key pressed: " .. key) -- Add this for debugging
         
-        -- Check tutorial action
-        if tutorial then tutorial.checkAction("toggle_auto_collect") end
+        -- Camera shortcuts
+        if key == "r" then
+            camera.resetPosition()
+            log.info("Camera reset")
+        elseif key == "e" then
+            local enabled = camera.toggleEdgeScrolling()
+            log.info("Edge scrolling " .. (enabled and "enabled" or "disabled"))
+        elseif key == "c" then
+            local enabled = game.toggleAutoCollect()
+            log.info("Auto-collection " .. (enabled and "enabled" or "disabled"))
+            
+            -- Check tutorial action
+            if tutorial then tutorial.checkAction("toggle_auto_collect") end
+        elseif key == "v" or key == "a" then
+            local visible = game.toggleCollectRadiusVisibility()
+            log.info("Collection radius " .. (visible and "visible" or "hidden"))
+        elseif key == "f11" then
+            -- Toggle fullscreen
+            love.window.setFullscreen(not love.window.getFullscreen())
+            log.info("Fullscreen: " .. (love.window.getFullscreen() and "enabled" or "disabled"))
+        elseif key == "p" then
+            -- Toggle pause
+            if game.paused ~= nil then
+                game.paused = not game.paused
+                log.info("Game " .. (game.paused and "paused" or "resumed"))
+            end
+        elseif key == "f" then
+            -- Handle F key for camera movement
+            -- This seems to already be working
+        elseif key == "=" or key == "+" then
+            -- Scale UI up
+            if ui.increaseScale then
+                ui.increaseScale()
+            end
+        elseif key == "-" then
+            -- Scale UI down
+            if ui.decreaseScale then
+                ui.decreaseScale()
+            end
+        end
+        
+        -- UI panel shortcuts
+        if key == "1" then
+            ui.togglePanel("robot")
+            log.info("Toggled robot panel")
+        elseif key == "2" then
+            ui.togglePanel("research")
+            log.info("Toggled research panel")
+        elseif key == "h" then
+            ui.togglePanel("help")
+            log.info("Toggled help panel")
+        elseif key == "s" then
+            ui.togglePanel("settings")
+            log.info("Toggled settings panel")
+        elseif key == "escape" then
+            ui.closeAllPanels()
+            log.info("Closed all panels")
+        end
+        
+        -- Additional UI shortcuts that might be defined in ui.keypressed
+        -- but don't call ui.keypressed directly to avoid potential circular references
+    end)
+    
+    if not success then
+        log.error("Error in keypressed handler: " .. tostring(message))
+        return false
     end
-    
-    -- UI shortcuts
-    ui.keypressed(key)
-    
-    -- Game shortcuts
-    game.keypressed(key)
 end
 
 return input

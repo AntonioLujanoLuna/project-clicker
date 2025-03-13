@@ -890,14 +890,20 @@ function ui.mousemoved(x, y)
 end
 
 function ui.keypressed(key)
-    -- Handle keyboard shortcuts
-    if shortcuts[key] then
-        shortcuts[key]()
-    elseif key == "+" or key == "=" then
-        ui.increaseScale()
-    elseif key == "-" then
-        ui.decreaseScale()
-    end
+    -- Keep this function minimal to avoid circular dependencies
+    -- Most functionality is now in input.keypressed
+    
+    -- Handle any UI-specific functionality that isn't already in input.keypressed
+    log.info("UI keypressed: " .. key)
+end
+
+-- Add this helper function to ui.lua
+function ui.anyPanelVisible()
+    -- Check if any panel is visible
+    return robot_panel.visible or 
+           research_panel.visible or 
+           help_panel.visible or 
+           settings_panel.visible
 end
 
 function ui.togglePanel(panel_name)

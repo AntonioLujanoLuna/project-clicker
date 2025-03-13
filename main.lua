@@ -28,10 +28,17 @@ function love.wheelmoved(x, y)
 end
 
 function love.keypressed(key)
-    game.keypressed(key)
-    
-    -- Quit the game when escape is pressed
-    if key == "escape" then
-        love.event.quit()
-    end
-end 
+    -- Use safe call to prevent crashes
+    utils.safeCall(function()
+        -- Process the key in input module
+        input.keypressed(key, camera, game, ui, tutorial)
+        
+        -- Check for quit
+        if key == "escape" then
+            -- Only quit if no panels are open
+            if not ui.anyPanelVisible() then
+                love.event.quit()
+            end
+        end
+    end)
+end

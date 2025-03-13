@@ -335,7 +335,14 @@ end
 
 -- Key press handling
 function game.keypressed(key)
-    input.keypressed(key, camera, game, ui, tutorial)
+    -- This function should only handle game-specific state changes
+    -- and NOT call input.keypressed or process input directly
+    
+    -- You can add game-specific handlers here, but be careful not to
+    -- duplicate what's already in input.keypressed
+    
+    -- Return false to signal that no handlers were triggered
+    return false
 end
 
 -- Add a robot to the world
