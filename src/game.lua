@@ -1023,6 +1023,9 @@ function game.keypressed(key)
         local fullscreen = not love.window.getFullscreen()
         love.window.setFullscreen(fullscreen)
         print("Fullscreen mode " .. (fullscreen and "enabled" or "disabled"))
+    elseif key == "b" then
+        game.debugPhysics()
+        print("Debug Physics")
     end
 end
 
