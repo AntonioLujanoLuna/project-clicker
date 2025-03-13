@@ -503,7 +503,7 @@ function game.loadGame()
     local success, data = pcall(function()
         local contents = love.filesystem.read("save.json")
         return json.decode(contents)
-    )
+    end)
     
     if not success then
         log.error("Failed to load save file: " .. tostring(data))
