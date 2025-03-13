@@ -101,6 +101,30 @@ local music_volume_slider = {
     label = "Music Volume"
 }
 
+-- Helper function to draw a slider - MOVED HERE TO FIX THE ERROR
+local function drawSlider(slider, value_text)
+    -- Draw slider background
+    love.graphics.setColor(0.2, 0.2, 0.2)
+    love.graphics.rectangle("fill", slider.x, slider.y, slider.width, slider.height)
+    
+    -- Draw slider fill
+    love.graphics.setColor(0.4, 0.4, 0.4)
+    love.graphics.rectangle("fill", slider.x, slider.y, slider.width * slider.value, slider.height)
+    
+    -- Draw slider border
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.rectangle("line", slider.x, slider.y, slider.width, slider.height)
+    
+    -- Draw slider handle
+    love.graphics.setColor(0.8, 0.8, 0.8)
+    local handle_x = slider.x + slider.width * slider.value
+    love.graphics.rectangle("fill", handle_x - 5, slider.y - 5, 10, slider.height + 10)
+    
+    -- Draw slider label
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.printf(slider.label .. ": " .. value_text, slider.x, slider.y - 20, slider.width, "left")
+end
+
 function ui.load()
     -- Load font
     font = love.graphics.getFont() -- Default font
@@ -1009,28 +1033,4 @@ function ui.updatePanelPositions()
     ui.initRobotButtons()
 end
 
--- Helper function to draw a slider
-local function drawSlider(slider, value_text)
-    -- Draw slider background
-    love.graphics.setColor(0.2, 0.2, 0.2)
-    love.graphics.rectangle("fill", slider.x, slider.y, slider.width, slider.height)
-    
-    -- Draw slider fill
-    love.graphics.setColor(0.4, 0.4, 0.4)
-    love.graphics.rectangle("fill", slider.x, slider.y, slider.width * slider.value, slider.height)
-    
-    -- Draw slider border
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.rectangle("line", slider.x, slider.y, slider.width, slider.height)
-    
-    -- Draw slider handle
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    local handle_x = slider.x + slider.width * slider.value
-    love.graphics.rectangle("fill", handle_x - 5, slider.y - 5, 10, slider.height + 10)
-    
-    -- Draw slider label
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.printf(slider.label .. ": " .. value_text, slider.x, slider.y - 20, slider.width, "left")
-end
-
-return ui 
+return ui

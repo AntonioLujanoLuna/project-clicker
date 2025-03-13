@@ -2,6 +2,11 @@
 -- Main entry point for Love2D
 
 local game = require("src.game")
+local utils = require("src.utils")  -- Added missing import
+local input = require("src.input")  -- Added missing import
+local camera = require("src.camera")  -- Added missing import
+local ui = require("src.ui")  -- Added missing import
+local tutorial = require("src.tutorial")  -- Added missing import
 
 function love.load()
     game.load()
