@@ -1,6 +1,7 @@
 -- project-clicker - Game Module
--- Manages the core game state and logic
+-- Central coordinator for game systems and state
 
+-- Import modules
 local resources = require("src.resources")
 local robots = require("src.robots")
 local buildings = require("src.buildings")
@@ -11,290 +12,82 @@ local config = require("src.config")
 local log = require("src.log")
 local json = require("lib.json")
 local utils = require("src.utils")
+local bits = require("src.bits")
+local audio = require("src.audio")
+local world = require("src.world")
+local input = require("src.input")
+local tutorial = require("src.tutorial")
 
 local game = {}
 
--- Game constants - placeholders to be initialized in game.load()
-game.WORLD_WIDTH = nil
-game.WORLD_HEIGHT = nil
-game.GROUND_HEIGHT = nil
-game.GROUND_LEVEL = nil
-game.HORIZON_LEVEL = nil
-game.SKY_COLOR = nil
-game.GROUND_COLOR = nil
-game.UNDERGROUND_COLOR = nil
-game.GRID_SIZE = nil
-
--- Game state
-game.resources = {}
-game.robots = {}
-game.buildings = {}
+-- Game state - minimized to focus on coordination rather than implementation
+game.initialized = false
+game.resources_collected = { wood = 0, stone = 0, food = 0 }
 game.pollution_level = 0
 game.research_points = 0
-game.hover_resource = nil -- Track which resource is being hovered
-game.collection_animations = {} -- For visual feedback when collecting resources
+game.collection_animations = {}
 
--- Resource click feedback
-game.resource_particles = {}
-game.resource_feedback = {}
-
--- Resource bits on the ground (new mechanic)
-game.resource_bits = {} -- {x, y, type, size, vx, vy, grounded, pixels, colliding_with}
-
--- Pixel art for resource bits
-game.resource_bit_pixels = {
-    wood = {
-        {0,1,1,0},
-        {1,1,1,1},
-        {1,1,1,1},
-        {0,1,1,0}
-    },
-    stone = {
-        {1,1,1,1},
-        {1,0,0,1},
-        {1,0,0,1},
-        {1,1,1,1}
-    },
-    food = {
-        {0,1,0,0},
-        {1,1,1,0},
-        {0,1,1,1},
-        {0,0,1,0}
-    }
-}
-
--- Resource banks (collection points) - placeholder, will be initialized in game.load()
-game.resource_banks = {}
-
--- World entities (temporary representation)
-game.world_entities = {
-    resources = {},  -- {x, y, type, size}
-    robots = {}      -- {x, y, size, robot_type, target_x, target_y, state, cooldown}
-}
-
--- Resources collected (player's inventory)
-game.resources_collected = {
-    wood = 0,
-    stone = 0,
-    food = 0
-}
-
--- Add to game state section
-game.AUTO_COLLECT_RADIUS = config.collection.auto_collect_radius
-game.auto_collect_enabled = false -- Disable auto-collection by default
-game.auto_collect_cooldown = 0 -- Cooldown for auto-collection
-game.show_collect_radius = true -- Whether to show the collection radius
-game.radius_pulse = 0 -- For pulsing effect
-game.last_collect_time = 0 -- To track when resources were last collected
+-- Configuration constants (referenced from config to maintain compatibility)
+game.WORLD_WIDTH = nil
+game.WORLD_HEIGHT = nil
+game.GROUND_LEVEL = nil
+game.AUTO_COLLECT_RADIUS = nil
+game.auto_collect_enabled = false
+game.auto_collect_cooldown = 0
+game.show_collect_radius = true
+game.radius_pulse = 0
+game.last_collect_time = 0
 
 -- Save/load system
-game.save_version = "0.1.0" -- For future compatibility checks
+game.save_version = "0.1.0"
 game.auto_save_interval = 300 -- 5 minutes in seconds
 game.last_auto_save = 0
 
--- Object pooling for resource bits
-game.bit_pool = {}
-game.pool_size = 1000
+-- Resource particles for visual feedback
+game.resource_particles = {}
 
--- Grid-based spatial partitioning for collision detection
-game.grid = {}
-game.cell_size = 20 -- Size of each grid cell
-
--- Add this function to check if a position is too close to any resource bank
-local function isTooCloseToBank(x, y, min_distance)
-    for _, bank in pairs(game.resource_banks) do
-        local dx = bank.x - x
-        local dy = bank.y - y
-        local distance = math.sqrt(dx*dx + dy*dy)
-        
-        if distance < min_distance then
-            return true -- Too close to a bank
-        end
-    end
-    return false -- Not too close to any bank
-end
-
--- Initialize object pool for resource bits
-function game.initializeBitPool()
-    log.info("Initializing resource bit pool with " .. game.pool_size .. " objects")
-    
-    -- Pre-create objects for the pool
-    for i = 1, game.pool_size do
-        table.insert(game.bit_pool, {
-            active = false,
-            x = 0,
-            y = 0,
-            type = "",
-            size = 0,
-            vx = 0,
-            vy = 0,
-            grounded = false,
-            colliding_with = nil,
-            moving_to_bank = false,
-            grid_key = nil,
-            creation_time = 0
-        })
-    end
-end
-
-
--- Add a bit to the spatial grid for collision detection
-function game.addBitToGrid(bit)
-    -- Calculate grid cell coordinates
-    local cell_size = 20 -- Size of each grid cell
-    local grid_x = math.floor(bit.x / cell_size)
-    local grid_y = math.floor(bit.y / cell_size)
-    local cell_key = grid_x .. "," .. grid_y
-    
-    -- Initialize grid cell if it doesn't exist
-    if not game.grid[cell_key] then
-        game.grid[cell_key] = {}
-    end
-    
-    -- Add bit to grid cell
-    table.insert(game.grid[cell_key], bit)
-    
-    -- Store grid position in bit for easy updates
-    bit.grid_cell = cell_key
-end
-
--- Update a bit's position in the spatial grid
-function game.updateBitGridPosition(bit)
-    if bit.grid_cell then
-        -- Calculate new grid cell
-        local cell_size = 20
-        local grid_x = math.floor(bit.x / cell_size)
-        local grid_y = math.floor(bit.y / cell_size)
-        local new_cell_key = grid_x .. "," .. grid_y
-        
-        -- If cell changed, update grid
-        if new_cell_key ~= bit.grid_cell then
-            -- Remove from old cell
-            game.removeBitFromGrid(bit)
-            
-            -- Add to new cell
-            game.addBitToGrid(bit)
-        end
-    else
-        -- If bit doesn't have a grid cell, add it
-        game.addBitToGrid(bit)
-    end
-end
-
--- Remove a bit from the spatial grid
-function game.removeBitFromGrid(bit)
-    if bit.grid_cell and game.grid[bit.grid_cell] then
-        -- Find and remove bit from its grid cell
-        for i, grid_bit in ipairs(game.grid[bit.grid_cell]) do
-            if grid_bit == bit then
-                table.remove(game.grid[bit.grid_cell], i)
-                break
-            end
-        end
-        
-        -- Clear grid cell reference
-        bit.grid_cell = nil
-    end
-end
-
--- Get nearby bits for collision detection
-function game.getNearbyBits(bit)
-    local nearby_bits = {}
-    local cell_size = 20
-    
-    -- Check current cell and 8 surrounding cells
-    for dx = -1, 1 do
-        for dy = -1, 1 do
-            local grid_x = math.floor(bit.x / cell_size) + dx
-            local grid_y = math.floor(bit.y / cell_size) + dy
-            local cell_key = grid_x .. "," .. grid_y
-            
-            if game.grid[cell_key] then
-                for _, other_bit in ipairs(game.grid[cell_key]) do
-                    if other_bit ~= bit and other_bit.active then
-                        table.insert(nearby_bits, other_bit)
-                    end
-                end
-            end
-        end
-    end
-    
-    return nearby_bits
-end
-
+-- Initialize the game
 function game.load()
-    -- Initialize game constants
+    log.info("Loading game module")
+    
+    -- Initialize configuration constants
     game.WORLD_WIDTH = config.world.width
     game.WORLD_HEIGHT = config.world.height
-    game.GROUND_HEIGHT = config.world.ground_height
-    game.GROUND_LEVEL = game.GROUND_HEIGHT - game.WORLD_HEIGHT/2 -- Y coordinate of ground level
-    
-    -- Ensure horizon level is set, even if config.world.horizon_level is nil
-    if config.world.horizon_level then
-        game.HORIZON_LEVEL = config.world.horizon_level
-    else
-        -- Calculate a default horizon level if not provided in config
-        game.HORIZON_LEVEL = game.GROUND_LEVEL - 200
-    end
-    
-    game.SKY_COLOR = config.world.sky_color
-    game.GROUND_COLOR = config.world.ground_color
-    game.UNDERGROUND_COLOR = config.world.underground_color
-    game.GRID_SIZE = config.world.grid_size
-    
-    -- Initialize resource banks after GROUND_LEVEL is set
-    game.resource_banks = {
-        wood = {x = -120, y = game.GROUND_LEVEL, pixels = {
-            {0,0,1,1,1,1,0,0},
-            {0,1,1,1,1,1,1,0},
-            {1,1,1,1,1,1,1,1},
-            {1,1,0,1,1,0,1,1},
-            {1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1}
-        }},
-        stone = {x = 0, y = game.GROUND_LEVEL, pixels = {
-            {0,0,1,1,1,1,0,0},
-            {0,1,1,1,1,1,1,0},
-            {1,1,0,0,0,0,1,1},
-            {1,1,0,1,1,0,1,1},
-            {1,1,0,1,1,0,1,1},
-            {1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1}
-        }},
-        food = {x = 120, y = game.GROUND_LEVEL, pixels = {
-            {0,0,1,1,1,1,0,0},
-            {0,1,1,1,1,1,1,0},
-            {1,1,1,0,0,1,1,1},
-            {1,1,0,0,0,0,1,1},
-            {1,1,0,0,0,0,1,1},
-            {1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1},
-            {1,1,1,1,1,1,1,1}
-        }}
-    }
-    
-    -- Initialize camera with world boundaries
-    camera.load(game.WORLD_WIDTH, game.WORLD_HEIGHT)
-    
-    -- Set the ground level for the camera
-    camera.setGroundLevel(game.GROUND_LEVEL)
-    
+    game.GROUND_LEVEL = config.world.ground_height - config.world.height/2
+    game.AUTO_COLLECT_RADIUS = config.collection.auto_collect_radius
+
+    -- Load all modules
+    world.load()
     resources.load()
     robots.load()
     buildings.load()
     pollution.load()
     ui.load()
+    bits.load()
+    tutorial.load()
     
-    -- Initialize resource feedback array
-    game.resource_feedback = {}
+    -- Set the ground level for the camera
+    camera.load(game.WORLD_WIDTH, game.WORLD_HEIGHT)
+    camera.setGroundLevel(game.GROUND_LEVEL)
     
-    -- Initialize world entities
-    game.initialize()
+    -- Initialize bits module
+    bits.initPool()
+    
+    -- Associate callback functions
+    resources.create_bits_callback = bits.createBitsFromResource
     
     -- Initialize resource particle systems
+    game.initializeParticles()
+    
+    -- Generate initial world resources
+    world.generateResources()
+    
+    game.initialized = true
+    log.info("Game module loaded successfully")
+end
+
+-- Create particle systems for visual feedback
+function game.initializeParticles()
     local particle_img = love.graphics.newCanvas(4, 4)
     love.graphics.setCanvas(particle_img)
     love.graphics.clear()
@@ -320,183 +113,172 @@ function game.load()
         ps:setSizes(2, 1)
         game.resource_particles[type] = ps
     end
-    
-    -- Debug info
-    print("project-clicker game loaded!")
-    print("Initial pollution level:", game.pollution_level)
-    print("World size:", game.WORLD_WIDTH, "x", game.WORLD_HEIGHT)
-    print("Ground level at y =", game.GROUND_LEVEL)
-    
-    -- Connect resources.lua with game.lua
-    resources.create_bits_callback = game.createResourceBit
-    
-    -- Initialize the bit pool
-    game.initBitPool()
-    
-    -- Initialize the spatial grid
-    game.grid = {}
-    game.cell_size = 20 -- Size of each grid cell
-    
-    log.info("Game module loaded successfully")
 end
 
+-- Core update loop
+function game.update(dt)
+    -- Update camera
+    camera.update(dt)
+    
+    -- Update resource bits
+    bits.update(dt, game.GROUND_LEVEL, world.resource_banks, game.resources_collected, game.addCollectionAnimation, game.resource_particles)
+    
+    -- Update modules
+    resources.update(dt)
+    robots.update(dt, game.resources_collected)
+    buildings.update(dt, game.resources_collected)
+    
+    -- Update pollution level
+    local new_pollution = pollution.update(dt, game.pollution_level, game.resources_collected, buildings, robots)
+    if new_pollution then
+        game.pollution_level = new_pollution
+    end
+    
+    -- Generate research points over time (very slowly)
+    game.research_points = game.research_points + 0.01 * dt
+    
+    -- Update UI
+    ui.update(dt)
+    
+    -- Update resource particle systems
+    for _, ps in pairs(game.resource_particles) do
+        ps:update(dt)
+    end
+    
+    -- Update collection animations
+    if game.collection_animations then
+        for i = #game.collection_animations, 1, -1 do
+            local anim = game.collection_animations[i]
+            anim.lifetime = anim.lifetime + dt
+            if anim.lifetime >= anim.max_lifetime then
+                table.remove(game.collection_animations, i)
+            end
+        end
+    else
+        game.collection_animations = {}
+    end
+    
+    -- Update radius pulse effect
+    game.radius_pulse = game.radius_pulse + dt * 2
+    if game.radius_pulse > math.pi * 2 then
+        game.radius_pulse = 0
+    end
+    
+    -- Auto-collection feature
+    game.updateAutoCollection(dt)
+    
+    -- Auto-save
+    game.last_auto_save = game.last_auto_save + dt
+    if game.last_auto_save >= game.auto_save_interval then
+        local success, message = game.saveGame()
+        if success then
+            log.info("Auto-saved game.")
+        else
+            log.error("Auto-save failed: " .. message)
+        end
+        game.last_auto_save = 0
+    end
+    
+    -- Update tutorial
+    tutorial.update(dt)
+end
+
+-- Auto-collection update
+function game.updateAutoCollection(dt)
+    if game.auto_collect_enabled then
+        -- Update cooldown
+        if game.auto_collect_cooldown > 0 then
+            game.auto_collect_cooldown = game.auto_collect_cooldown - dt
+        else
+            -- Get camera position (center of screen)
+            local cam_x, cam_y = camera.getPosition()
+            
+            -- Check for resources within auto-collect radius
+            for i, resource in ipairs(world.entities.resources) do
+                local dx = resource.x - cam_x
+                local dy = resource.y - cam_y
+                local distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < game.AUTO_COLLECT_RADIUS then
+                    -- Check if resource has bits remaining
+                    if resource.current_bits and resource.current_bits > 0 then
+                        -- Determine how many bits to collect (1 or resource.current_bits, whichever is smaller)
+                        local bits_to_collect = math.min(1, resource.current_bits)
+                        
+                        -- Auto-collect this resource
+                        game.collectResource(resource.type, bits_to_collect, resource.x, resource.y)
+                        
+                        -- Decrement the resource's current bits
+                        resource.current_bits = resource.current_bits - bits_to_collect
+                        
+                        -- Reset cooldown (shorter for auto-collection)
+                        game.auto_collect_cooldown = 1.5
+                        
+                        -- Visual feedback
+                        game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
+                        game.resource_particles[resource.type]:emit(8) -- Fewer particles
+                        
+                        -- Add collection animation
+                        game.addCollectionAnimation(resource.x, resource.y, resource.type, bits_to_collect)
+                        
+                        -- Update last collect time for pulse effect
+                        game.last_collect_time = love.timer.getTime()
+                        
+                        -- Play collect sound
+                        audio.playSound("collect")
+                        
+                        -- If resource is depleted, remove it from the world
+                        if resource.current_bits <= 0 then
+                            -- Special visual effect for depleted resource
+                            game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
+                            game.resource_particles[resource.type]:emit(30) -- More particles for depletion effect
+                            
+                            -- Remove the resource
+                            table.remove(world.entities.resources, i)
+                            
+                            -- Play depleted sound
+                            audio.playSound("depleted")
+                            
+                            log.debug(resource.type .. " resource depleted by auto-collection!")
+                        end
+                        
+                        break -- Only collect one resource per cooldown
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Draw game world and entities
 function game.draw()
     -- Apply camera transformations
     camera.set()
     
-    -- Draw ground
-    love.graphics.setColor(0.2, 0.2, 0.2)
-    love.graphics.rectangle("fill", -game.WORLD_WIDTH/2, game.GROUND_LEVEL, game.WORLD_WIDTH, game.WORLD_HEIGHT/2)
-    
-    -- Draw horizon line
-    if game.HORIZON_LEVEL then -- Add check to ensure HORIZON_LEVEL is not nil
-        love.graphics.setColor(0.3, 0.3, 0.3)
-        love.graphics.line(-game.WORLD_WIDTH/2, game.HORIZON_LEVEL, game.WORLD_WIDTH/2, game.HORIZON_LEVEL)
-    end
+    -- Draw world background
+    world.drawBackground()
     
     -- Draw collection radius
-    game.drawCollectionRadius()
+    world.drawCollectionRadius(game.auto_collect_enabled, game.show_collect_radius, 
+                              game.AUTO_COLLECT_RADIUS, camera.getPosition(), 
+                              game.radius_pulse, game.last_collect_time)
     
     -- Draw resource banks
-    game.drawResourceBanks()
+    world.drawResourceBanks(game.resources_collected)
     
-    -- Draw resources with hover effect
-    for _, resource in ipairs(game.world_entities.resources) do
-        -- Determine if this resource is being hovered
-        local is_hovered = (game.hover_resource == resource)
-        
-        -- Determine if resource is within auto-collection radius
-        local in_collection_radius = false
-        if game.auto_collect_enabled then
-            local cam_x, cam_y = camera.getPosition()
-            local dx = resource.x - cam_x
-            local dy = resource.y - cam_y
-            local distance = math.sqrt(dx*dx + dy*dy)
-            in_collection_radius = (distance < game.AUTO_COLLECT_RADIUS)
-        end
-        
-        -- Calculate the display size based on remaining bits
-        local remaining_ratio = 1
-        if resource.max_bits and resource.current_bits then
-            remaining_ratio = resource.current_bits / resource.max_bits
-            -- Ensure resource doesn't get too small even when nearly depleted
-            remaining_ratio = 0.3 + remaining_ratio * 0.7
-        end
-        local display_size = resource.size * remaining_ratio
-        
-        -- Set color based on resource type, hover state, and collection radius
-        if resource.type == "wood" then
-            if is_hovered then
-                love.graphics.setColor(0.8, 0.6, 0.2, 1) -- Brighter brown when hovered
-            elseif in_collection_radius and game.show_collect_radius then
-                love.graphics.setColor(0.7, 0.5, 0.15, 1) -- Slightly brighter when in collection radius
-            else
-                love.graphics.setColor(0.6, 0.4, 0.2, 1) -- Normal brown
-            end
-        elseif resource.type == "stone" then
-            if is_hovered then
-                love.graphics.setColor(0.9, 0.9, 0.9, 1) -- Brighter gray when hovered
-            elseif in_collection_radius and game.show_collect_radius then
-                love.graphics.setColor(0.8, 0.8, 0.8, 1) -- Slightly brighter when in collection radius
-            else
-                love.graphics.setColor(0.7, 0.7, 0.7, 1) -- Normal gray
-            end
-        elseif resource.type == "food" then
-            if is_hovered then
-                love.graphics.setColor(0.3, 1.0, 0.3, 1) -- Brighter green when hovered
-            elseif in_collection_radius and game.show_collect_radius then
-                love.graphics.setColor(0.25, 0.9, 0.25, 1) -- Slightly brighter when in collection radius
-            else
-                love.graphics.setColor(0.2, 0.8, 0.2, 1) -- Normal green
-            end
-        end
-        
-        -- Draw the resource with adjusted size
-        love.graphics.rectangle("fill", resource.x - display_size/2, resource.y - display_size/2, display_size, display_size)
-        
-        -- Draw highlight effect if hovered
-        if is_hovered then
-            -- Pulsating glow effect
-            local pulse = 0.7 + math.sin(love.timer.getTime() * 5) * 0.3
-            local glow_size = display_size * (1.2 + pulse * 0.2)
-            
-            -- Draw glow
-            love.graphics.setColor(1, 1, 1, 0.3 * pulse)
-            love.graphics.rectangle("fill", 
-                resource.x - glow_size/2, 
-                resource.y - glow_size/2, 
-                glow_size, glow_size)
-                
-            -- Draw "Click to collect" text and remaining bits
-            love.graphics.setColor(1, 1, 1, 0.9)
-            love.graphics.printf("Click to collect", 
-                resource.x - 60, 
-                resource.y - display_size - 20, 
-                120, "center")
-            
-            -- Show remaining bits if available
-            if resource.current_bits then
-                love.graphics.printf(resource.current_bits .. "/" .. resource.max_bits .. " bits", 
-                    resource.x - 60, 
-                    resource.y - display_size - 40, 
-                    120, "center")
-            end
-        end
-        
-        -- Always show remaining bits (smaller text when not hovered)
-        if resource.current_bits and not is_hovered then
-            love.graphics.setColor(1, 1, 1, 0.7)
-            love.graphics.printf(resource.current_bits, 
-                resource.x - 20, 
-                resource.y - 8, 
-                40, "center")
-        end
-        
-        -- Draw indicator for resources in collection radius
-        if in_collection_radius and game.show_collect_radius and not is_hovered then
-            -- Pulsating effect based on radius pulse
-            local pulse = 0.5 + math.sin(game.radius_pulse) * 0.2
-            
-            -- Draw a small indicator above the resource
-            love.graphics.setColor(0.2, 0.8, 0.2, pulse)
-            love.graphics.circle("fill", resource.x, resource.y - display_size/2 - 15, 5)
-            
-            -- Draw a connecting line to the center
-            local cam_x, cam_y = camera.getPosition()
-            love.graphics.setColor(0.2, 0.8, 0.2, pulse * 0.3)
-            love.graphics.line(resource.x, resource.y, cam_x, cam_y)
-        end
-    end
-    
-    -- Reset color
-    love.graphics.setColor(1, 1, 1)
+    -- Draw resources (we're not tracking which resource is hovered directly anymore)
+    world.drawResources(nil, game.auto_collect_enabled, game.AUTO_COLLECT_RADIUS,
+                       game.show_collect_radius, {x = camera.getPosition()}, 
+                       game.resource_particles, game.radius_pulse)
     
     -- Draw resource bits
-    game.drawResourceBits()
-    
-    -- Draw resource feedback
-    game.drawResourceFeedback()
+    bits.draw()
     
     -- Draw robots
-    for _, robot in ipairs(game.world_entities.robots) do
-        -- Draw each robot
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.rectangle("fill", 
-            robot.x - robot.size/2, 
-            robot.y - robot.size/2, 
-            robot.size, robot.size)
-        
-        -- Draw robot type for debugging
-        love.graphics.setColor(0, 0, 0)
-        local type_initial = robot.type:sub(1,1)
-        love.graphics.print(type_initial, robot.x - 4, robot.y - 6)
-    end
+    world.drawRobots()
     
     -- Draw buildings
-    for _, building in ipairs(game.buildings) do
-        local building_type = buildings.TYPES[building.type]
-        buildings.draw(building, building_type)
-    end
+    buildings.draw(world.entities.buildings)
     
     -- Draw collection animations
     if game.collection_animations then
@@ -528,733 +310,38 @@ function game.draw()
     end
     
     -- Draw UI elements
-    ui.draw(game.resources, game.pollution_level, game.research_points)
+    ui.draw(game.resources_collected, game.pollution_level, game.research_points)
+    
+    -- Draw tutorial overlay
+    tutorial.draw()
 end
 
-function game.drawWorldEntities()
-    -- Draw resource nodes in the world
-    for _, resource in ipairs(game.world_entities.resources) do
-        -- All resources are white in monochrome
-        love.graphics.setColor(1, 1, 1)
-        
-        -- Draw resource as a square
-        love.graphics.rectangle("fill", resource.x - resource.size/2, resource.y - resource.size/2, resource.size, resource.size)
-        
-        -- Draw resource label
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.printf(
-            resource.type:sub(1,1):upper() .. resource.type:sub(2), 
-            resource.x - 40, 
-            resource.y - resource.size/2 - 20, 
-            80, 
-            "center"
-        )
-    end
-    
-    -- Draw robots in the world
-    for _, robot in ipairs(game.world_entities.robots) do
-        -- Draw robot as a square with a different shade
-        love.graphics.setColor(1, 1, 1) -- White for robots too
-        love.graphics.rectangle("fill", robot.x - robot.size/2, robot.y - robot.size/2, robot.size, robot.size)
-        
-        -- Draw a small indicator of robot type (could be a letter or symbol)
-        love.graphics.setColor(0, 0, 0) -- Black text for contrast
-        local type_initial = robot.type:sub(1,1):upper()
-        love.graphics.printf(
-            type_initial, 
-            robot.x - 10, 
-            robot.y - 7, 
-            20, 
-            "center"
-        )
-    end
-end
-
-function game.update(dt)
-    -- Update camera
-    camera.update(dt)
-    
-    -- Update game systems
-    resources.update(dt)
-    robots.update(dt, game.resources)
-    buildings.update(dt, game.resources)
-    
-    -- Update pollution level
-    local new_pollution = pollution.update(dt, game.pollution_level, game.resources, game.buildings, game.robots)
-    if new_pollution then
-        game.pollution_level = new_pollution
-    end
-    
-    -- Generate research points over time (very slowly)
-    game.research_points = game.research_points + 0.01 * dt
-    
-    -- Update UI
-    ui.update(dt)
-    
-    -- Handle resource clicking pollution
-    if resources.last_click_pollution then
-        game.pollution_level = pollution.generate(resources.last_click_pollution, game.pollution_level)
-        resources.last_click_pollution = nil
-    end
-    
-    -- Update resource particle systems
-    for _, ps in pairs(game.resource_particles) do
-        ps:update(dt)
-    end
-    
-    -- Update resource feedback
-    for i = #game.resource_feedback, 1, -1 do
-        local feedback = game.resource_feedback[i]
-        feedback.time = feedback.time - dt
-        feedback.y = feedback.y - 50 * dt -- Move upward
-        
-        if feedback.time <= 0 then
-            table.remove(game.resource_feedback, i)
-        end
-    end
-    
-    -- Update collection animations
-    if game.collection_animations then
-        for i = #game.collection_animations, 1, -1 do
-            local anim = game.collection_animations[i]
-            anim.lifetime = anim.lifetime + dt
-            if anim.lifetime >= anim.max_lifetime then
-                table.remove(game.collection_animations, i)
-            end
-        end
-    else
-        -- Initialize if it doesn't exist
-        game.collection_animations = {}
-    end
-    
-    -- Update radius pulse effect
-    game.radius_pulse = game.radius_pulse + dt * 2
-    if game.radius_pulse > math.pi * 2 then
-        game.radius_pulse = 0
-    end
-    
-    -- Auto-collection feature
-    if game.auto_collect_enabled then
-        -- Update cooldown
-        if game.auto_collect_cooldown > 0 then
-            game.auto_collect_cooldown = game.auto_collect_cooldown - dt
-        else
-            -- Get camera position (center of screen)
-            local cam_x, cam_y = camera.getPosition()
-            
-            -- Check for resources within auto-collect radius
-            for i, resource in ipairs(game.world_entities.resources) do
-                local dx = resource.x - cam_x
-                local dy = resource.y - cam_y
-                local distance = math.sqrt(dx*dx + dy*dy)
-                
-                if distance < game.AUTO_COLLECT_RADIUS then
-                    -- Check if resource has bits remaining
-                    if resource.current_bits and resource.current_bits > 0 then
-                        -- Determine how many bits to collect (1 or resource.current_bits, whichever is smaller)
-                        local bits_to_collect = math.min(1, resource.current_bits)
-                        
-                        -- Auto-collect this resource
-                        game.collectResource(resource.type, bits_to_collect, resource.x, resource.y)
-                        
-                        -- Decrement the resource's current bits
-                        resource.current_bits = resource.current_bits - bits_to_collect
-                        
-                        -- Reset cooldown (shorter for auto-collection)
-                        game.auto_collect_cooldown = 1.5
-                        
-                        -- Visual feedback
-                        game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
-                        game.resource_particles[resource.type]:emit(8) -- Fewer particles
-                        
-                        -- Add collection animation
-                        game.addCollectionAnimation(resource.x, resource.y, resource.type, bits_to_collect)
-                        
-                        -- Update last collect time for pulse effect
-                        game.last_collect_time = love.timer.getTime()
-                        
-                        -- If resource is depleted, remove it from the world
-                        if resource.current_bits <= 0 then
-                            -- Special visual effect for depleted resource
-                            game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
-                            game.resource_particles[resource.type]:emit(30) -- More particles for depletion effect
-                            
-                            -- Remove the resource
-                            table.remove(game.world_entities.resources, i)
-                            
-                            -- Visual feedback - console
-                            print(resource.type .. " resource depleted by auto-collection!")
-                        end
-                        
-                        break -- Only collect one resource per cooldown
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Auto-save
-    game.last_auto_save = game.last_auto_save + dt
-    if game.last_auto_save >= game.auto_save_interval then
-        local success, message = game.saveGame()
-        if success then
-            log.info("Auto-saved game.")
-        else
-            log.error("Auto-save failed: " .. message)
-        end
-        game.last_auto_save = 0
-    end
-    
-    -- Clear grid each frame
-    game.grid = {}
-    
-    -- First pass: update positions and add to grid
-                        for i, bit in ipairs(game.resource_bits) do
-        if bit.active then
-            -- Apply gravity
-        if not bit.grounded then
-                bit.vy = bit.vy + 500 * dt
-        end
-        
-        -- Update position
-        bit.x = bit.x + bit.vx * dt
-        bit.y = bit.y + bit.vy * dt
-        
-            -- Add to spatial grid
-            game.addBitToGrid(bit)
-            
-            -- Ground collision
-            if bit.y > game.GROUND_LEVEL - bit.size/2 then
-                bit.y = game.GROUND_LEVEL - bit.size/2
-                bit.vy = 0
-                bit.vx = bit.vx * 0.5  -- Less friction for more sliding
-                bit.grounded = true    -- Always mark as grounded when hitting ground
-            end
-        
-            -- Reset grounded flag if above ground
-        if bit.y < game.GROUND_LEVEL - bit.size and bit.grounded then
-            bit.grounded = false
-            end
-        end
-        end
-        
-    -- Second pass: handle collisions using spatial grid
-    for i = #game.resource_bits, 1, -1 do
-        local bit = game.resource_bits[i]
-        if bit.active then
-        local supporting_bits = 0
-            local nearby_bits = game.getNearbyBits(bit)
-        
-            for _, other_bit in ipairs(nearby_bits) do
-                local dx = bit.x - other_bit.x
-                local dy = bit.y - other_bit.y
-                local distance = math.sqrt(dx*dx + dy*dy)
-                
-                if distance < bit.size * 1.2 then
-                    -- Collision response
-                    local push_dx = dx
-                    local push_dy = dy
-                    
-                    local push_length = math.sqrt(push_dx*push_dx + push_dy*push_dy)
-                    if push_length > 0.001 then
-                        push_dx = push_dx / push_length
-                        push_dy = push_dy / push_length
-                    else
-                        local angle = love.math.random() * math.pi * 2
-                        push_dx = math.cos(angle)
-                        push_dy = math.sin(angle)
-                    end
-                    
-                    local overlap = bit.size - distance
-                    if overlap < 0 then overlap = 0 end
-                    
-                    bit.x = bit.x + push_dx * overlap * 0.6
-                    bit.y = bit.y + push_dy * overlap * 0.6
-                    other_bit.x = other_bit.x - push_dx * overlap * 0.6
-                    other_bit.y = other_bit.y - push_dy * overlap * 0.6
-                    
-                    -- Update grid positions after moving
-                    game.updateBitGridPosition(bit)
-                    game.updateBitGridPosition(other_bit)
-                    
-                    -- Check if supported
-                    if dy < -bit.size*0.5 and math.abs(dx) < bit.size*0.8 then
-                        supporting_bits = supporting_bits + 1
-                        
-                        if other_bit.grounded then
-                            bit.vx = bit.vx * 0.4
-                            
-                            if math.abs(bit.vx) < 10 and math.abs(bit.vy) < 20 then
-                                bit.grounded = true
-                        end
-                    end
-                end
-            end
-        end
-        
-            -- Bank collision check
-        if bit.moving_to_bank then
-            local bank = game.resource_banks[bit.type]
-            if bank then
-                local dx = bank.x - bit.x
-                local dy = bank.y - bit.y
-                local dist = math.sqrt(dx*dx + dy*dy)
-                
-                    if dist < 25 then
-                    -- Add to resource count 
-                    game.resources_collected[bit.type] = game.resources_collected[bit.type] + 1
-                    
-                    -- Visual feedback
-                    table.insert(game.resource_feedback, {
-                        x = bit.x, 
-                        y = bit.y - 20,
-                        type = bit.type,
-                        amount = 1,
-                        time = 1.5
-                    })
-                    
-                    -- Add collection animation
-                    game.addCollectionAnimation(bit.x, bit.y, bit.type, 1)
-                    
-                        -- Return bit to pool
-                        game.releaseBitToPool(bit)
-                        game.removeBitFromGrid(bit)
-                        
-                        -- Remove from active bits
-                    table.remove(game.resource_bits, i)
-                    
-                        log.debug("Added " .. bit.type .. " to inventory! Total: " .. game.resources_collected[bit.type])
-                    end
-                end
-            end
-            
-            -- Check for bits that have been around too long (cleanup)
-            if love.timer.getTime() - bit.creation_time > 60 then -- 60 seconds lifetime
-                game.releaseBitToPool(bit)
-                game.removeBitFromGrid(bit)
-                table.remove(game.resource_bits, i)
-                log.debug("Removed old resource bit")
-            end
-        end
-    end
-end
-
-function game.debugPhysics()
-    log.info("Debug Physics: checking resource bit velocities")
-    for i, bit in ipairs(game.resource_bits) do
-        if bit.active then
-            log.info(string.format("Bit #%d: vx=%.1f vy=%.1f active=%s grounded=%s", 
-                i, bit.vx, bit.vy, tostring(bit.active), tostring(bit.grounded)))
-        end
-    end
-end
-
+-- Mouse press handling
 function game.mousepressed(x, y, button)
-    -- Handle camera drag
-    camera.mousepressed(x, y, button)
-    
-    -- Convert screen coordinates to world coordinates for resource clicking
-    if button == 1 then -- Left mouse button
-        local wx, wy = camera.screenToWorld(x, y)
-        
-        -- First check if we clicked on a resource in resources.lua
-        local screen_x, screen_y = x, y -- Keep original screen coordinates for UI
-        if game.checkResourceClicks(screen_x, screen_y) then
-            -- Resource was clicked, bits were created
-            return
-        end
-        
-        -- Check if clicked on any resource in world entities
-        for i, resource in ipairs(game.world_entities.resources) do
-            -- Simple square collision check for all resource types
-            if wx >= resource.x - resource.size/2 and wx <= resource.x + resource.size/2 and
-               wy >= resource.y - resource.size/2 and wy <= resource.y + resource.size/2 then
-                
-                -- Check if resource has bits remaining
-                if not resource.current_bits or resource.current_bits <= 0 then
-                    -- Resource is depleted, do nothing
-                    break
-                end
-                
-                -- Determine how many bits to generate (between 5-10 based on resource size)
-                local bits_to_generate = math.min(10, resource.current_bits)
-                
-                -- Generate resource bits without initial bias toward bank
-                for i = 1, bits_to_generate do
-                    local bit = {
-                        x = resource.x + love.math.random(-20, 20),
-                        y = resource.y - love.math.random(5, 15), -- Start slightly above the resource
-                        type = resource.type,
-                        size = 4, -- Smaller size for powder-like appearance
-                        vx = love.math.random(-30, 30), -- Less horizontal velocity
-                        vy = -love.math.random(50, 100), -- Just a small initial upward velocity
-                        grounded = false,
-                        colliding_with = nil, -- Track collisions with other bits
-                        moving_to_bank = false -- Bits don't automatically move to bank
-                    }
-                    table.insert(game.resource_bits, bit)
-                end
-                
-                -- Decrement the resource's current bits
-                resource.current_bits = resource.current_bits - bits_to_generate
-                
-                -- Generate pollution
-                resources.last_click_pollution = resources.TYPES[string.upper(resource.type)].pollution_per_click
-                
-                -- Visual feedback - particles
-                game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
-                game.resource_particles[resource.type]:emit(15)
-                
-                -- Visual feedback - console
-                print("Created " .. resource.type .. " bits! Remaining: " .. resource.current_bits)
-                
-                -- If resource is depleted, remove it from the world
-                if resource.current_bits <= 0 then
-                    -- Special visual effect for depleted resource
-                    game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
-                    game.resource_particles[resource.type]:emit(30) -- More particles for depletion effect
-                    
-                    -- Remove the resource
-                    table.remove(game.world_entities.resources, i)
-                    
-                    -- Visual feedback - console
-                    print(resource.type .. " resource depleted!")
-                end
-                
-                break
-            end
-        end
-        
-        -- Check if clicked on any resource bit
-        for i, bit in ipairs(game.resource_bits) do
-            if wx >= bit.x - bit.size*1.5 and wx <= bit.x + bit.size*1.5 and
-               wy >= bit.y - bit.size*1.5 and wy <= bit.y + bit.size*1.5 then
-                
-                -- Improve collision detection by making clickable area slightly larger
-                -- This makes it easier to click on tiny bits
-                
-                -- Get nearby bits too (powder behavior - clicking one affects neighbors)
-                local clicked_bits = {bit}
-                
-                -- Find nearby bits to also send toward bank (powder effect)
-                for j, other_bit in ipairs(game.resource_bits) do
-                    if i ~= j and bit.type == other_bit.type then
-                        local dx = bit.x - other_bit.x
-                        local dy = bit.y - other_bit.y
-                        local distance = math.sqrt(dx*dx + dy*dy)
-                        
-                        -- If close enough, include in the clicked group
-                        if distance < bit.size * 4 then
-                            table.insert(clicked_bits, other_bit)
-                        end
-                    end
-                end
-                
-                -- Set all collected bits in motion toward the bank
-                for _, clicked_bit in ipairs(clicked_bits) do
-                    local bank = game.resource_banks[clicked_bit.type]
-                    if bank then
-                        -- Calculate direction toward bank
-                        local dx = bank.x - clicked_bit.x
-                        local dy = bank.y - clicked_bit.y
-                        local distance = math.sqrt(dx*dx + dy*dy)
-                        local direction = dx > 0 and 1 or -1
-                        
-                        -- Jump strength based on distance, but with more consistent behavior
-                        local jump_strength = math.min(distance * 0.25, 220)
-                        
-                        -- Apply slight randomization for natural look
-                        jump_strength = jump_strength + love.math.random(-20, 20)
-                        
-                        -- Improved jumping physics
-                        clicked_bit.vx = direction * jump_strength
-                        clicked_bit.vy = -300 - love.math.random(0, 50) -- Stronger upward velocity with slight randomization
-                        clicked_bit.grounded = false
-                        clicked_bit.moving_to_bank = true -- Set the flag to continue moving toward bank
-                        
-                        -- Add visual effect for clicked bits
-                        if game.resource_particles[clicked_bit.type] then
-                            game.resource_particles[clicked_bit.type]:setPosition(clicked_bit.x, clicked_bit.y)
-                            game.resource_particles[clicked_bit.type]:emit(5) -- Small emission to show click
-                        end
-                    end
-                end
-                
-                -- Visual feedback - console
-                print("Moving " .. #clicked_bits .. " " .. bit.type .. " bits toward bank!")
-                
-                -- Only process one click at a time
-                break
-            end
-        end
-    end
-    
-    -- Check UI interactions (in screen space)
-    ui.mousepressed(x, y, button, game)
+    -- Pass to input module
+    return input.mousepressed(x, y, button, world, camera, game, ui, tutorial)
 end
 
+-- Mouse release handling
 function game.mousereleased(x, y, button)
     camera.mousereleased(x, y, button)
     ui.mousereleased(x, y, button)
 end
 
+-- Mouse wheel handling
 function game.wheelmoved(x, y)
-    -- Handle zooming with mouse wheel
-    if y > 0 then
-        camera.zoom(love.graphics.getWidth()/2, love.graphics.getHeight()/2, 1.1)
-    elseif y < 0 then
-        camera.zoom(love.graphics.getWidth()/2, love.graphics.getHeight()/2, 0.9)
-    end
+    input.wheelmoved(x, y, camera)
 end
 
+-- Key press handling
 function game.keypressed(key)
-    -- We don't need to call camera.keypressed anymore
-    -- as keyboard camera movement is now handled in camera.update
-    
-    -- Handle any game-specific key presses
-    if key == "c" then  -- Changed from "a" to "c" for auto-collection
-        local enabled = game.toggleAutoCollect()
-        print("Auto-collection " .. (enabled and "enabled" or "disabled"))
-    elseif key == "v" then
-        local visible = game.toggleCollectRadiusVisibility()
-        print("Collection radius " .. (visible and "visible" or "hidden"))
-    elseif key == "f" then
-        -- Toggle fullscreen mode
-        local fullscreen = not love.window.getFullscreen()
-        love.window.setFullscreen(fullscreen)
-        print("Fullscreen mode " .. (fullscreen and "enabled" or "disabled"))
-    elseif key == "b" then
-        game.debugPhysics()
-        print("Debug Physics")
-    end
-end
+    input.keypressed(key, camera, game, ui, tutorial)
+}
 
--- Function to add a robot to the world
+-- Add a robot to the world
 function game.addRobot(robot_type_key)
-    local robot_type = robots.TYPES[robot_type_key or "GATHERER"]
-    
-    local robot = {
-        x = love.math.random(-game.WORLD_WIDTH/2 + 200, game.WORLD_WIDTH/2 - 200),
-        y = game.GROUND_LEVEL - 16,  -- Place on ground, adjusted for pixel art height
-        size = 16,
-        type = robot_type_key or "GATHERER", -- Store the type key
-        state = "idle",
-        cooldown = 0,
-        target_x = 0,
-        target_y = 0
-    }
-    
-    table.insert(game.world_entities.robots, robot)
-    return robot
-end
-
--- Function to draw pixel art (similar to the one in robots.lua)
-local function drawPixelArt(pixels, x, y, scale, color)
-    scale = scale or 1
-    color = color or {1, 1, 1}
-    
-    for row = 1, #pixels do
-        for col = 1, #pixels[row] do
-            if pixels[row][col] == 1 then
-                love.graphics.setColor(color)
-                love.graphics.rectangle("fill", 
-                    x + (col-1) * scale, 
-                    y + (row-1) * scale, 
-                    scale, scale)
-            end
-        end
-    end
-end
-
--- Draw resource bits
-function game.drawResourceBits()
-    for i, bit in ipairs(game.resource_bits) do
-        -- Use simple squares for powder-like appearance
-        local color = {1, 1, 1} -- Default white color
-        
-        -- Add accent colors based on resource type
-        if bit.type == "wood" then
-            color = {0.8, 0.6, 0.4} -- Brown accent for wood
-        elseif bit.type == "stone" then
-            color = {0.7, 0.7, 0.7} -- Gray accent for stone
-        elseif bit.type == "food" then
-            color = {0.5, 0.8, 0.3} -- Green accent for food
-        end
-        
-        -- Draw as a simple square for powder-like appearance
-        love.graphics.setColor(color)
-        love.graphics.rectangle("fill", 
-            bit.x - bit.size/2, 
-            bit.y - bit.size/2, 
-            bit.size, 
-            bit.size)
-    end
-end
-
-function game.createBitsFromResource(resource, bits_to_generate)
-    local created_bits = {}
-    
-    for j = 1, bits_to_generate do
-        local bit = game.getBitFromPool() -- Use object pool
-        if bit then
-            bit.x = resource.x + love.math.random(-20, 20)
-            bit.y = resource.y - love.math.random(5, 15)
-            bit.type = resource.type
-            bit.size = 3
-            -- IMPORTANT: Give strong initial velocities to make bits visibly move
-            bit.vx = love.math.random(-120, 120)  -- Much stronger horizontal movement
-            bit.vy = -love.math.random(250, 400) -- Much stronger upward velocity
-            bit.grounded = false
-            bit.moving_to_bank = false
-            bit.creation_time = love.timer.getTime()
-            bit.active = true
-            
-            table.insert(game.resource_bits, bit)
-            table.insert(created_bits, bit)
-        end
-    end
-    
-    -- Debug output to verify bits are created with proper velocities
-    if #created_bits > 0 then
-        log.debug("Created " .. #created_bits .. " bits. Sample velocity: vx=" .. 
-                 created_bits[1].vx .. ", vy=" .. created_bits[1].vy)
-    end
-    
-    return created_bits
-end
-
-function game.sendBitsToBank(bits, bank_type)
-    local bank = game.resource_banks[bank_type]
-    if not bank then return 0 end
-    
-    local count = 0
-    for _, bit in ipairs(bits) do
-        -- Calculate direction toward bank
-        local dx = bank.x - bit.x
-        local dy = bank.y - bit.y
-        local distance = math.sqrt(dx*dx + dy*dy)
-        local dir_x = dx / distance
-        local dir_y = dy / distance
-        
-        -- Jump strength based on distance, but with more consistent behavior
-        local jump_strength = math.min(distance * 0.4, 300)
-        
-        -- Apply slight randomization for natural look
-        jump_strength = jump_strength + love.math.random(-20, 20)
-        
-        -- Improved jumping physics - stronger velocities
-        bit.vx = dir_x * jump_strength
-        bit.vy = -400 - love.math.random(0, 100) -- Much stronger upward velocity
-        bit.grounded = false
-        bit.moving_to_bank = true
-        
-        -- Debug output to confirm velocity is set
-        log.debug("Bit velocity toward bank: vx=" .. bit.vx .. ", vy=" .. bit.vy)
-        
-        count = count + 1
-    end
-    
-    return count
-end
-
-
--- Create a resource bit when a resource is clicked
-function game.createResourceBit(resource_type, x, y)
-    -- Convert resource type to lowercase if needed
-    resource_type = resource_type:lower()
-    
-    -- Find the nearest matching resource in world_entities
-    local nearest_resource = nil
-    local min_distance = math.huge
-    
-    for i, resource in ipairs(game.world_entities.resources) do
-        if resource.type == resource_type then
-            local dx = resource.x - x
-            local dy = resource.y - y
-            local distance = math.sqrt(dx*dx + dy*dy)
-            
-            if distance < min_distance then
-                min_distance = distance
-                nearest_resource = {
-                    resource = resource,
-                    index = i
-                }
-            end
-        end
-    end
-    
-    -- If no matching resource found or resource is depleted, don't create bits
-    if not nearest_resource or nearest_resource.resource.current_bits <= 0 then
-        print("No available " .. resource_type .. " resource found or resource depleted!")
-        return false
-    end
-    
-    -- Get the corresponding bank position for directional bias
-    local bank = game.resource_banks[resource_type]
-    local bank_direction = 0
-    
-    if bank then
-        -- Calculate rough direction to bank (will be subtle)
-        local dx = bank.x - x
-        bank_direction = dx > 0 and 1 or -1
-    end
-    
-    -- Determine how many bits to generate (up to 15, but not more than what's left in the resource)
-    local bits_to_generate = math.min(15, nearest_resource.resource.current_bits)
-    
-    -- Create multiple bits - more for a better powder effect
-    for i = 1, bits_to_generate do
-        -- Calculate initial velocities with slight bias toward bank
-        local base_vx = love.math.random(-20, 20)
-        
-        -- Add subtle bias toward bank (stronger for bits that start with less horizontal velocity)
-        local bank_bias = bank_direction * love.math.random(5, 15)
-        
-        local bit = {
-            x = x + love.math.random(-15, 15),
-            y = y - love.math.random(2, 10), -- Start slightly above the resource
-            type = resource_type,
-            size = 3, -- Slightly smaller for better powder appearance
-            vx = base_vx + bank_bias, -- Add bank direction bias
-            vy = -love.math.random(100, 200), -- Stronger upward velocity for better arc
-            grounded = false, -- Whether the bit has landed on the ground
-            colliding_with = nil, -- Track collisions with other bits
-            moving_to_bank = false, -- Don't automatically move to bank until clicked
-            creation_time = love.timer.getTime() -- Track creation time for potential effects
-        }
-        table.insert(game.resource_bits, bit)
-    end
-    
-    -- Decrement the resource's current bits
-    nearest_resource.resource.current_bits = nearest_resource.resource.current_bits - bits_to_generate
-    
-    -- Visual feedback - particles
-    if game.resource_particles[resource_type] then
-        game.resource_particles[resource_type]:setPosition(x, y)
-        game.resource_particles[resource_type]:emit(20) -- More particles for better effect
-    end
-    
-    -- Visual feedback - console
-    print("Created " .. resource_type .. " bits! Remaining: " .. nearest_resource.resource.current_bits)
-    
-    -- If resource is depleted, remove it from the world
-    if nearest_resource.resource.current_bits <= 0 then
-        -- Special visual effect for depleted resource
-        game.resource_particles[resource_type]:setPosition(nearest_resource.resource.x, nearest_resource.resource.y)
-        game.resource_particles[resource_type]:emit(30) -- More particles for depletion effect
-        
-        -- Remove the resource
-        table.remove(game.world_entities.resources, nearest_resource.index)
-        
-        -- Visual feedback - console
-        print(resource_type .. " resource depleted!")
-    end
-    
-    -- Generate pollution
-    resources.last_click_pollution = resources.TYPES[string.upper(resource_type)].pollution_per_click
-    
-    return true
-end
+    return world.addRobot(robot_type_key, robots.TYPES)
+}
 
 -- Check for resource clicks
 function game.checkResourceClicks(x, y)
@@ -1264,142 +351,21 @@ function game.checkResourceClicks(x, y)
     -- Check if these are world coordinates that need conversion
     if camera.isWorldCoordinate(x, y) then
         screen_x, screen_y = camera.worldToScreen(x, y)
-    end
+    }
     
     -- Use resources.lua's click function to handle resource clicking
-    local pollution = resources.click(screen_x, screen_y, game.resources_collected, game.pollution_level, game.createResourceBit)
+    local pollution = resources.click(screen_x, screen_y, game.resources_collected, game.pollution_level, bits.createBitsFromResource)
     
     if pollution > 0 then
         -- Handle pollution generation
-        resources.last_click_pollution = pollution
+        game.pollution_level = game.pollution_level + pollution
         return true
-    end
+    }
     
     return false
-end
+}
 
--- Draw resource banks
-function game.drawResourceBanks()
-    -- Draw resource banks
-    for type, bank in pairs(game.resource_banks) do
-        local color = {1, 1, 1} -- Default white color
-        local accent_color = {1, 1, 1}
-        
-        -- Set accent colors based on resource type
-        if type == "wood" then
-            accent_color = {0.8, 0.6, 0.4} -- Brown accent for wood
-        elseif type == "stone" then
-            accent_color = {0.7, 0.7, 0.7} -- Gray accent for stone
-        elseif type == "food" then
-            accent_color = {0.5, 0.8, 0.3} -- Green accent for food
-        end
-        
-        -- Draw the pixel art bank (positioned so bottom of bank is at ground level)
-        -- Increase scale to make buildings larger
-        local scale = 6 -- Larger scale for more prominent buildings
-        drawPixelArt(bank.pixels, bank.x - 24, bank.y - 48, scale, accent_color)
-        
-        -- Format number with commas for thousands
-        local amount = game.resources_collected[type] or 0
-        local formatted_amount = tostring(amount)
-        local formatted_with_commas = ""
-        
-        -- Add commas for thousands
-        local length = string.len(formatted_amount)
-        local position = 1
-        
-        while position <= length do
-            local end_pos = length - position + 1
-            local start_pos = math.max(1, end_pos - 2)
-            local segment = string.sub(formatted_amount, start_pos, end_pos)
-            
-            if formatted_with_commas ~= "" then
-                formatted_with_commas = segment .. "," .. formatted_with_commas
-            else
-                formatted_with_commas = segment
-            end
-            
-            position = position + 3
-        end
-        
-        -- Draw resource count with better visibility
-        -- Draw a background for the text
-        love.graphics.setColor(0, 0, 0, 0.7)
-        love.graphics.rectangle("fill", bank.x - 40, bank.y - 60, 80, 30)
-        
-        -- Draw the resource count with a shadow for better readability
-        love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.print(formatted_with_commas, bank.x - 9, bank.y - 49)
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.print(formatted_with_commas, bank.x - 10, bank.y - 50)
-        
-        -- Draw resource type label with better visibility
-        -- Draw a background for the text
-        love.graphics.setColor(0, 0, 0, 0.7)
-        love.graphics.rectangle("fill", bank.x - 40, bank.y - 90, 80, 25)
-        
-        -- Draw the resource type with a shadow for better readability
-        love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.print(type:upper(), bank.x - 19, bank.y - 79)
-        love.graphics.setColor(accent_color)
-        love.graphics.print(type:upper(), bank.x - 20, bank.y - 80)
-    end
-end
-
--- Initialize the game
-function game.initialize()
-    -- Initialize resources
-    game.resources = {
-        wood = {},
-        stone = {},
-        food = {}
-    }
-    
-    -- Initialize resource bits
-    game.resource_bits = {}
-    
-    -- Initialize robots
-    game.robots = {}
-    
-    -- Initialize buildings
-    game.buildings = {}
-    
-    -- Initialize resources collected
-    game.resources_collected = {
-        wood = 0,
-        stone = 0,
-        food = 0
-    }
-    
-    -- Initialize world_entities if it doesn't exist
-    if not game.world_entities then
-        game.world_entities = {
-            resources = {},
-            robots = {}
-        }
-    end
-    
-    -- Generate initial resources
-    game.generateResources()
-end
-
--- Draw resource feedback (floating text)
-function game.drawResourceFeedback()
-    love.graphics.setColor(1, 1, 1)
-    for _, feedback in ipairs(game.resource_feedback) do
-        -- Calculate alpha based on remaining time
-        local alpha = math.min(1, feedback.time)
-        love.graphics.setColor(1, 1, 1, alpha)
-        
-        -- Draw the feedback text
-        love.graphics.print("+" .. feedback.amount .. " " .. feedback.type, 
-                           feedback.x - 20, feedback.y)
-    end
-    -- Reset color
-    love.graphics.setColor(1, 1, 1)
-end
-
--- Add this function to the game module near the end
+-- Add collection animation
 function game.addCollectionAnimation(x, y, resource_type, amount)
     local colors = {
         wood = {0.6, 0.4, 0.2},
@@ -1410,7 +376,7 @@ function game.addCollectionAnimation(x, y, resource_type, amount)
     -- Initialize collection_animations if it doesn't exist
     if not game.collection_animations then
         game.collection_animations = {}
-    end
+    }
     
     table.insert(game.collection_animations, {
         x = x,
@@ -1420,93 +386,51 @@ function game.addCollectionAnimation(x, y, resource_type, amount)
         lifetime = 0,
         max_lifetime = 1.5
     })
-end
+}
 
 -- Function to toggle auto-collection
 function game.toggleAutoCollect()
     game.auto_collect_enabled = not game.auto_collect_enabled
     return game.auto_collect_enabled
-end
+}
 
 -- Function to toggle collection radius visualization
 function game.toggleCollectRadiusVisibility()
     game.show_collect_radius = not game.show_collect_radius
     return game.show_collect_radius
-end
+}
 
--- Draw the auto-collection radius
-function game.drawCollectionRadius()
-    if not game.auto_collect_enabled or not game.show_collect_radius then
-        return -- Don't draw if auto-collection is disabled or radius is hidden
-    end
-    
-    -- Get camera position (center of screen)
-    local cam_x, cam_y = camera.getPosition()
-    
-    -- Calculate pulse effect
-    local base_alpha = 0.2
-    local pulse_alpha = 0.1 * math.sin(game.radius_pulse)
-    local alpha = base_alpha + pulse_alpha
-    
-    -- Enhance pulse effect if recently collected
-    local time_since_collect = love.timer.getTime() - game.last_collect_time
-    if time_since_collect < 0.5 then
-        alpha = alpha + 0.3 * (1 - time_since_collect * 2)
-    end
-    
-    -- Draw the radius circle
-    love.graphics.setColor(0.2, 0.8, 0.2, alpha)
-    love.graphics.circle("line", cam_x, cam_y, game.AUTO_COLLECT_RADIUS)
-    
-    -- Draw a slightly larger, more transparent circle for better visibility
-    love.graphics.setColor(0.2, 0.8, 0.2, alpha * 0.5)
-    love.graphics.circle("line", cam_x, cam_y, game.AUTO_COLLECT_RADIUS + 5)
-    
-    -- Draw a small indicator at the center
-    love.graphics.setColor(0.2, 0.8, 0.2, alpha * 2)
-    love.graphics.circle("fill", cam_x, cam_y, 5)
-    
-    -- Reset color
-    love.graphics.setColor(1, 1, 1, 1)
-end
-
--- Modify the collectResource function to not automatically set moving_to_bank
+-- Collect resource and generate bits
 function game.collectResource(resource_type, amount, x, y)
-    -- Get the bank for this resource type
-    local bank = game.resource_banks[resource_type]
-    local direction = 0
-    
-    if bank then
-        -- Calculate direction toward bank
-        local dx = bank.x - x
-        direction = dx > 0 and 1 or -1
-    end
-    
     -- Generate resource bits
+    local created_bits = {}
+    
     for j = 1, amount * 5 do -- More bits for a powder-like effect
-        -- Calculate initial velocity without bias toward bank
-        local bit = {
-            x = x + love.math.random(-20, 20),
-            y = y - love.math.random(5, 15), -- Start slightly above the resource
-            type = resource_type,
-            size = 4, -- Smaller size for powder-like appearance
-            vx = love.math.random(-30, 30), -- Less horizontal velocity
-            vy = -love.math.random(50, 100), -- Just a small initial upward velocity
-            grounded = false,
-            colliding_with = nil, -- Track collisions with other bits
-            moving_to_bank = false -- Don't automatically move to bank
+        local bit = bits.getBitFromPool()
+        if bit then
+            bit.x = x + love.math.random(-20, 20)
+            bit.y = y - love.math.random(5, 15) -- Start slightly above the resource
+            bit.type = resource_type
+            bit.size = 4 -- Smaller size for powder-like appearance
+            bit.vx = love.math.random(-30, 30) -- Less horizontal velocity
+            bit.vy = -love.math.random(50, 100) -- Just a small initial upward velocity
+            bit.grounded = false
+            bit.moving_to_bank = false -- Don't automatically move to bank
+            bit.active = true
+            bit.creation_time = love.timer.getTime()
+            
+            table.insert(created_bits, bit)
         }
-        table.insert(game.resource_bits, bit)
-    end
+    }
     
     -- Visual feedback - particles
     if game.resource_particles[resource_type] then
         game.resource_particles[resource_type]:setPosition(x, y)
         game.resource_particles[resource_type]:emit(8) -- Fewer particles for auto-collection
-    end
+    }
     
-    return true
-end
+    return created_bits
+}
 
 -- Save game state to a file
 function game.saveGame()
@@ -1519,54 +443,53 @@ function game.saveGame()
         resources_collected = game.resources_collected,
         pollution_level = game.pollution_level,
         research_points = game.research_points,
-        -- Serialize only necessary properties of each entity
         buildings = {},
         robots = {}
     }
     
     -- Add buildings data
-    for i, building in ipairs(game.buildings) do
+    for i, building in ipairs(world.entities.buildings) do
         table.insert(save_data.buildings, {
             type = building.type,
             x = building.x,
             y = building.y
         })
-    end
+    }
     
     -- Add robots data
-    for i, robot in ipairs(game.world_entities.robots) do
+    for i, robot in ipairs(world.entities.robots) do
         table.insert(save_data.robots, {
             type = robot.type,
             x = robot.x,
             y = robot.y,
             state = robot.state
         })
-    end
+    }
     
     -- Add resources data
     save_data.resources = {}
-    for i, resource in ipairs(game.world_entities.resources) do
+    for i, resource in ipairs(world.entities.resources) do
         table.insert(save_data.resources, {
             type = resource.type,
             x = resource.x,
             y = resource.y,
             current_bits = resource.current_bits
         })
-    end
+    }
     
     -- Write to file
     local success, message = pcall(function()
         love.filesystem.write("save.json", json.encode(save_data))
-    end)
+    })
     
     if success then
         log.info("Game saved successfully")
     else
         log.error("Failed to save game: " .. tostring(message))
-    end
+    }
     
     return success, message
-end
+}
 
 -- Load game state from a file
 function game.loadGame()
@@ -1575,62 +498,62 @@ function game.loadGame()
     if not love.filesystem.getInfo("save.json") then
         log.warning("No save file found")
         return false, "No save file found."
-    end
+    }
     
     local success, data = pcall(function()
         local contents = love.filesystem.read("save.json")
         return json.decode(contents)
-    end)
+    })
     
     if not success then
         log.error("Failed to load save file: " .. tostring(data))
         return false, "Corrupted save file."
-    end
+    }
     
     -- Check version compatibility
     if data.version ~= game.save_version then
         log.warning("Save version mismatch: " .. data.version .. " vs " .. game.save_version)
-        -- For now, we'll still try to load it
-    end
+    }
     
     -- Reset game state
-    game.buildings = {}
-    game.world_entities.robots = {}
-    game.world_entities.resources = {}
+    world.entities.buildings = {}
+    world.entities.robots = {}
+    world.entities.resources = {}
     
     -- Clear resource bits
-    for i, bit in ipairs(game.resource_bits) do
-        game.releaseBitToPool(bit)
-    end
-    game.resource_bits = {}
+    bits.clearAll()
     
     -- Load resources
-    game.resources_collected = data.resources_collected
-    game.pollution_level = data.pollution_level
-    game.research_points = data.research_points
+    game.resources_collected = data.resources_collected or { wood = 0, stone = 0, food = 0 }
+    game.pollution_level = data.pollution_level or 0
+    game.research_points = data.research_points or 0
     
     -- Load buildings
-    for _, building_data in ipairs(data.buildings) do
-        local building = {
-            type = building_data.type,
-            x = building_data.x,
-            y = building_data.y
+    if data.buildings then
+        for _, building_data in ipairs(data.buildings) do
+            local building = {
+                type = building_data.type,
+                x = building_data.x,
+                y = building_data.y
+            }
+            table.insert(world.entities.buildings, building)
         }
-        table.insert(game.buildings, building)
-    end
+    }
     
     -- Load robots
-    for _, robot_data in ipairs(data.robots) do
-        local robot = {
-            type = robot_data.type,
-            x = robot_data.x,
-            y = robot_data.y,
-            state = robot_data.state or "idle",
-            size = robots.TYPES[robot_data.type].size,
-            cooldown = 0
+    if data.robots then
+        for _, robot_data in ipairs(data.robots) do
+            local robot = {
+                type = robot_data.type,
+                x = robot_data.x,
+                y = robot_data.y,
+                state = robot_data.state or "idle",
+                size = robots.TYPES[robot_data.type].size,
+                cooldown = 0
+            }
+            table.insert(world.entities.robots, robot)
         }
-        table.insert(game.world_entities.robots, robot)
-    end
+    }
     
     -- Load resources
     if data.resources then
@@ -1639,170 +562,18 @@ function game.loadGame()
                 type = resource_data.type,
                 x = resource_data.x,
                 y = resource_data.y,
-                current_bits = resource_data.current_bits
+                current_bits = resource_data.current_bits,
+                max_bits = resource_data.max_bits or resource_data.current_bits
             }
-            table.insert(game.world_entities.resources, resource)
-        end
+            table.insert(world.entities.resources, resource)
+        }
     else
         -- If no resources in save, regenerate them
-        game.generateResources()
-    end
+        world.generateResources()
+    }
     
     log.info("Game loaded successfully")
     return true, "Game loaded successfully."
-end
+}
 
--- Function to generate resources in the world
-function game.generateResources()
-    log.info("Generating resources...")
-    
-    -- Clear existing resources
-    game.world_entities.resources = {}
-    
-    -- Generate resources with proper properties
-    local resource_types = {"wood", "stone", "food"}
-    for _, resource_type in ipairs(resource_types) do
-        -- Get configuration for this resource type
-        local resource_config = config.resources.types[resource_type]
-        local size = resource_config and resource_config.size or 20
-        local min_bits = resource_config and resource_config.bits and resource_config.bits.min or 30
-        local max_bits = resource_config and resource_config.bits and resource_config.bits.max or 50
-        
-        -- Create 10 resources of each type
-        local resources_created = 0
-        local attempts = 0
-        local max_attempts = 200 -- Increase max attempts to ensure we find enough valid positions
-        local min_distance = config.resources.min_bank_distance or 200
-        
-        while resources_created < 10 and attempts < max_attempts do
-            local x = math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
-            local y = game.GROUND_LEVEL - math.random(10, 30)
-            attempts = attempts + 1
-            
-            -- Check if the position is too close to any bank
-            if not isTooCloseToBank(x, y, min_distance) then
-                -- Calculate max bits (random value between min and max)
-                local resource_max_bits = math.floor(min_bits + math.random() * (max_bits - min_bits))
-                
-                -- Create the resource with all required properties
-                table.insert(game.world_entities.resources, {
-                    x = x,
-                    y = y,
-                    type = resource_type,
-                    size = size,
-                    max_bits = resource_max_bits,
-                    current_bits = resource_max_bits,
-                    active = true
-                })
-                
-                resources_created = resources_created + 1
-            end
-        end
-        
-        log.info("Created " .. resources_created .. " " .. resource_type .. " resources after " .. attempts .. " attempts")
-    end
-    
-    log.info("Generated " .. #game.world_entities.resources .. " total resources")
-end
-
--- Initialize the object pool for resource bits
-function game.initBitPool()
-    game.bit_pool = {}
-    game.pool_size = 1000
-    
-    -- Pre-allocate objects in the pool
-    for i = 1, game.pool_size do
-        game.bit_pool[i] = {
-            active = false,
-            x = 0,
-            y = 0,
-            type = "",
-            size = 0,
-            vx = 0,
-            vy = 0,
-            grounded = false,
-            colliding_with = nil, -- Added this property
-            moving_to_bank = false,
-            grid_cell = nil, -- Added this property
-            creation_time = 0
-        }
-    end
-    
-    log.info("Initialized resource bit pool with " .. game.pool_size .. " objects")
-end
-
--- Get a bit from the object pool
-function game.getBitFromPool()
-    -- Initialize pool if it doesn't exist
-    if #game.bit_pool == 0 then
-        game.initBitPool()
-    end
-    
-    -- Find an inactive bit in the pool
-    for i = 1, #game.bit_pool do
-        if not game.bit_pool[i].active then
-            local bit = game.bit_pool[i]
-            bit.active = true
-            bit.colliding_with = nil
-            bit.grid_cell = nil -- Important for proper grid handling
-            bit.creation_time = love.timer.getTime()
-            return bit
-        end
-    end
-    
-    -- If no inactive bits found, create a new one (expand pool)
-    local new_bit = {
-        active = true,
-        x = 0,
-        y = 0,
-        type = "",
-        size = 0,
-        vx = 0,
-        vy = 0,
-        grounded = false,
-        colliding_with = nil,
-        moving_to_bank = false,
-        grid_cell = nil, -- Important for grid handling
-        creation_time = love.timer.getTime()
-    }
-    table.insert(game.bit_pool, new_bit)
-    
-    log.debug("Expanded bit pool to " .. #game.bit_pool .. " objects")
-    return new_bit
-end
-
--- Release a bit back to the pool
-function game.releaseBitToPool(bit)
-    if bit then
-        -- Remove from grid if it's in one
-        if bit.grid_cell then
-            game.removeBitFromGrid(bit)
-        end
-        
-        -- Reset properties
-        bit.active = false
-        bit.x = 0
-        bit.y = 0
-        bit.type = ""
-        bit.size = 0
-        bit.vx = 0
-        bit.vy = 0
-        bit.grounded = false
-        bit.colliding_with = nil
-        bit.moving_to_bank = false
-        bit.grid_cell = nil
-        bit.creation_time = 0
-    end
-end
-
-function game.drawDebugVelocities()
-    for _, bit in ipairs(game.resource_bits) do
-        if bit.active and (math.abs(bit.vx) > 0.1 or math.abs(bit.vy) > 0.1) then
-            -- Draw velocity vector
-            love.graphics.setColor(1, 0, 0, 0.5)
-            love.graphics.line(bit.x, bit.y, bit.x + bit.vx * 0.1, bit.y + bit.vy * 0.1)
-        end
-    end
-end
-
-return game 
+return game
