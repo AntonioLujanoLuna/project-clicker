@@ -39,6 +39,46 @@ bits.resource_bit_pixels = {
     }
 }
 
+-- Trajectory patterns for more varied bit movement
+bits.trajectory_patterns = {
+    -- Fountain pattern - bits shoot upward and outward
+    fountain = function(bit, index, total)
+        local angle = (index / total) * math.pi * 2
+        local strength = love.math.random(300, 500)
+        bit.vx = math.cos(angle) * strength
+        bit.vy = -love.math.random(400, 600) -- Strong upward velocity
+    end,
+    
+    -- Explosion pattern - bits explode outward in all directions
+    explosion = function(bit, index, total)
+        local angle = love.math.random() * math.pi * 2
+        local strength = love.math.random(200, 400)
+        bit.vx = math.cos(angle) * strength
+        bit.vy = math.sin(angle) * strength - love.math.random(100, 200) -- Slight upward bias
+    end,
+    
+    -- Spiral pattern - bits move in a spiral pattern
+    spiral = function(bit, index, total)
+        local angle = (index / total) * math.pi * 4
+        local strength = love.math.random(150, 350)
+        bit.vx = math.cos(angle) * strength
+        bit.vy = math.sin(angle) * strength - love.math.random(300, 400) -- Upward bias
+    end,
+    
+    -- Cascade pattern - bits fall in a waterfall-like pattern
+    cascade = function(bit, index, total)
+        local side = (index % 2 == 0) and 1 or -1
+        bit.vx = side * love.math.random(100, 300)
+        bit.vy = -love.math.random(200, 400) -- Upward velocity
+    end,
+    
+    -- Random pattern - completely random velocities
+    random = function(bit, index, total)
+        bit.vx = love.math.random(-350, 350)
+        bit.vy = -love.math.random(200, 500)
+    end
+}
+
 -- Load function to initialize the bits module
 function bits.load()
     log.info("Loading bits module")
@@ -64,7 +104,11 @@ function bits.initPool()
             colliding_with = nil,
             moving_to_bank = false,
             grid_cell = nil,
-            creation_time = 0
+            creation_time = 0,
+            color_variation = 0, -- Add color variation for visual diversity
+            size_variation = 0,  -- Add size variation for visual diversity
+            rotation = 0,        -- Add rotation for visual diversity
+            rotation_speed = 0   -- Add rotation speed for visual diversity
         }
     end
     
@@ -86,6 +130,13 @@ function bits.getBitFromPool()
             bit.colliding_with = nil
             bit.grid_cell = nil -- Important for proper grid handling
             bit.creation_time = love.timer.getTime()
+            
+            -- Add visual diversity properties
+            bit.color_variation = love.math.random(-15, 15) / 100 -- -0.15 to 0.15 color variation
+            bit.size_variation = love.math.random(-20, 20) / 100  -- -0.2 to 0.2 size variation
+            bit.rotation = love.math.random() * math.pi * 2       -- Random initial rotation
+            bit.rotation_speed = (love.math.random() - 0.5) * 5   -- Random rotation speed
+            
             return bit
         end
     end
@@ -103,7 +154,11 @@ function bits.getBitFromPool()
         colliding_with = nil,
         moving_to_bank = false,
         grid_cell = nil,
-        creation_time = love.timer.getTime()
+        creation_time = love.timer.getTime(),
+        color_variation = love.math.random(-15, 15) / 100,
+        size_variation = love.math.random(-20, 20) / 100,
+        rotation = love.math.random() * math.pi * 2,
+        rotation_speed = (love.math.random() - 0.5) * 5
     }
     table.insert(bits.bit_pool, new_bit)
     
@@ -220,16 +275,26 @@ end
 function bits.createBitsFromResource(resource, bits_to_generate, ground_level)
     local created_bits = {}
     
+    -- Choose a random trajectory pattern
+    local patterns = {"fountain", "explosion", "spiral", "cascade", "random"}
+    local pattern_name = patterns[love.math.random(1, #patterns)]
+    local pattern_func = bits.trajectory_patterns[pattern_name]
+    
+    log.debug("Using " .. pattern_name .. " trajectory pattern for resource " .. resource.type)
+    
     for j = 1, bits_to_generate do
         local bit = bits.getBitFromPool() -- Use object pool
         if bit then
             bit.x = resource.x + love.math.random(-20, 20)
             bit.y = resource.y - love.math.random(5, 15)
             bit.type = resource.type
-            bit.size = 3
-            -- IMPORTANT: Give strong initial velocities to make bits visibly move
-            bit.vx = love.math.random(-120, 120)  -- Much stronger horizontal movement
-            bit.vy = -love.math.random(250, 400) -- Much stronger upward velocity
+            
+            -- Vary bit size slightly for more natural look
+            bit.size = 3 * (1 + bit.size_variation)
+            
+            -- Apply the selected trajectory pattern
+            pattern_func(bit, j, bits_to_generate)
+            
             bit.grounded = false
             bit.moving_to_bank = false
             bit.creation_time = love.timer.getTime()
@@ -242,7 +307,7 @@ function bits.createBitsFromResource(resource, bits_to_generate, ground_level)
     
     -- Debug output to verify bits are created with proper velocities
     if #created_bits > 0 then
-        log.debug("Created " .. #created_bits .. " bits. Sample velocity: vx=" .. 
+        log.debug("Created " .. #created_bits .. " bits with " .. pattern_name .. " pattern. Sample velocity: vx=" .. 
                  created_bits[1].vx .. ", vy=" .. created_bits[1].vy)
     end
     
@@ -310,12 +375,21 @@ function bits.update(dt, ground_level, resource_banks, resources_collected, coll
                 bit.vy = 0
                 bit.vx = bit.vx * 0.5  -- Less friction for more sliding
                 bit.grounded = true    -- Always mark as grounded when hitting ground
+                
+                -- Add a small bounce effect for more dynamic visuals
+                if math.abs(bit.vx) > 50 then
+                    bit.vy = -love.math.random(50, 100)
+                    bit.grounded = false
+                end
             end
         
             -- Reset grounded flag if above ground
             if bit.y < ground_level - bit.size and bit.grounded then
                 bit.grounded = false
             end
+            
+            -- Update rotation
+            bit.rotation = bit.rotation + bit.rotation_speed * dt
         end
     end
         
@@ -430,22 +504,29 @@ function bits.draw()
         -- Use simple squares for powder-like appearance
         local color = {1, 1, 1} -- Default white color
         
-        -- Add accent colors based on resource type
+        -- Add accent colors based on resource type with variation
         if bit.type == "wood" then
-            color = {0.8, 0.6, 0.4} -- Brown accent for wood
+            color = {0.8 + bit.color_variation, 0.6 + bit.color_variation, 0.4 + bit.color_variation} -- Brown accent for wood
         elseif bit.type == "stone" then
-            color = {0.7, 0.7, 0.7} -- Gray accent for stone
+            color = {0.7 + bit.color_variation, 0.7 + bit.color_variation, 0.7 + bit.color_variation} -- Gray accent for stone
         elseif bit.type == "food" then
-            color = {0.5, 0.8, 0.3} -- Green accent for food
+            color = {0.5 + bit.color_variation, 0.8 + bit.color_variation, 0.3 + bit.color_variation} -- Green accent for food
         end
         
-        -- Draw as a simple square for powder-like appearance
+        -- Draw with rotation for more dynamic appearance
         love.graphics.setColor(color)
+        love.graphics.push()
+        love.graphics.translate(bit.x, bit.y)
+        love.graphics.rotate(bit.rotation)
         love.graphics.rectangle("fill", 
-            bit.x - bit.size/2, 
-            bit.y - bit.size/2, 
+            -bit.size/2, 
+            -bit.size/2, 
             bit.size, 
             bit.size)
+        love.graphics.pop()
+        
+        -- Update rotation for next frame
+        bit.rotation = bit.rotation + bit.rotation_speed * love.timer.getDelta()
     end
 end
 

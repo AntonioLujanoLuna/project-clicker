@@ -46,6 +46,27 @@ game.last_auto_save = 0
 -- Resource particles for visual feedback
 game.resource_particles = {}
 
+-- Event system for decoupling game systems
+game.events = {}
+game.event_handlers = {}
+
+-- Register an event handler
+function game.on(event_name, handler_function)
+    if not game.event_handlers[event_name] then
+        game.event_handlers[event_name] = {}
+    end
+    table.insert(game.event_handlers[event_name], handler_function)
+end
+
+-- Trigger an event
+function game.trigger(event_name, ...)
+    if game.event_handlers[event_name] then
+        for _, handler in ipairs(game.event_handlers[event_name]) do
+            handler(...)
+        end
+    end
+end
+
 -- Initialize the game
 function game.load()
     log.info("Loading game module")
@@ -82,8 +103,71 @@ function game.load()
     -- Generate initial world resources
     world.generateResources()
     
+    -- Set up event handlers
+    game.setupEventHandlers()
+    
     game.initialized = true
     log.info("Game module loaded successfully")
+end
+
+-- Set up event handlers for game systems
+function game.setupEventHandlers()
+    -- Resource collection event
+    game.on("resource_collected", function(resource_type, amount, x, y)
+        -- Update resource count
+        if not game.resources_collected[resource_type] then
+            game.resources_collected[resource_type] = 0
+        end
+        game.resources_collected[resource_type] = game.resources_collected[resource_type] + amount
+        
+        -- Visual feedback
+        game.addCollectionAnimation(x, y, resource_type, amount)
+        
+        -- Play sound
+        audio.playSound("collect")
+        
+        -- Emit particles
+        if game.resource_particles[resource_type] then
+            game.resource_particles[resource_type]:setPosition(x, y)
+            game.resource_particles[resource_type]:emit(15)
+        end
+        
+        log.debug("Collected " .. amount .. " " .. resource_type)
+    end)
+    
+    -- Resource depleted event
+    game.on("resource_depleted", function(resource_type, x, y)
+        -- Visual feedback
+        if game.resource_particles[resource_type] then
+            game.resource_particles[resource_type]:setPosition(x, y)
+            game.resource_particles[resource_type]:emit(30) -- More particles for depletion
+        end
+        
+        -- Play sound
+        audio.playSound("depleted")
+        
+        log.debug(resource_type .. " resource depleted!")
+    end)
+    
+    -- Auto-save event
+    game.on("auto_save", function()
+        local success, message = game.saveGame()
+        if success then
+            log.info("Auto-saved game.")
+        else
+            log.error("Auto-save failed: " .. message)
+        end
+    end)
+    
+    -- Pollution change event
+    game.on("pollution_changed", function(new_level)
+        game.pollution_level = new_level
+    end)
+    
+    -- Research points earned event
+    game.on("research_points_earned", function(amount)
+        game.research_points = game.research_points + amount
+    end)
 end
 
 -- Create particle systems for visual feedback
@@ -123,22 +207,8 @@ function game.update(dt)
     -- Update resource bits
     bits.update(dt, game.GROUND_LEVEL, world.resource_banks, game.resources_collected, game.addCollectionAnimation, game.resource_particles)
     
-    -- Update modules
-    resources.update(dt)
-    robots.update(dt, game.resources_collected)
-    buildings.update(dt, game.resources_collected)
-    
-    -- Update pollution level
-    local new_pollution = pollution.update(dt, game.pollution_level, game.resources_collected, buildings, robots)
-    if new_pollution then
-        game.pollution_level = new_pollution
-    end
-    
-    -- Generate research points over time (very slowly)
-    game.research_points = game.research_points + 0.01 * dt
-    
-    -- Update UI
-    ui.update(dt)
+    -- Update modules using a more event-driven approach
+    game.updateSystems(dt)
     
     -- Update resource particle systems
     for _, ps in pairs(game.resource_particles) do
@@ -146,17 +216,7 @@ function game.update(dt)
     end
     
     -- Update collection animations
-    if game.collection_animations then
-        for i = #game.collection_animations, 1, -1 do
-            local anim = game.collection_animations[i]
-            anim.lifetime = anim.lifetime + dt
-            if anim.lifetime >= anim.max_lifetime then
-                table.remove(game.collection_animations, i)
-            end
-        end
-    else
-        game.collection_animations = {}
-    end
+    game.updateCollectionAnimations(dt)
     
     -- Update radius pulse effect
     game.radius_pulse = game.radius_pulse + dt * 2
@@ -168,19 +228,59 @@ function game.update(dt)
     game.updateAutoCollection(dt)
     
     -- Auto-save
-    game.last_auto_save = game.last_auto_save + dt
-    if game.last_auto_save >= game.auto_save_interval then
-        local success, message = game.saveGame()
-        if success then
-            log.info("Auto-saved game.")
-        else
-            log.error("Auto-save failed: " .. message)
-        end
-        game.last_auto_save = 0
-    end
+    game.updateAutoSave(dt)
     
     -- Update tutorial
     tutorial.update(dt)
+end
+
+-- Update all game systems
+function game.updateSystems(dt)
+    -- Update resources
+    resources.update(dt)
+    
+    -- Update robots
+    robots.update(dt, game.resources_collected)
+    
+    -- Update buildings
+    buildings.update(dt, game.resources_collected)
+    
+    -- Update pollution level
+    local new_pollution = pollution.update(dt, game.pollution_level, game.resources_collected, buildings, robots)
+    if new_pollution and new_pollution ~= game.pollution_level then
+        game.trigger("pollution_changed", new_pollution)
+    end
+    
+    -- Generate research points over time (very slowly)
+    local research_earned = 0.01 * dt
+    game.trigger("research_points_earned", research_earned)
+    
+    -- Update UI
+    ui.update(dt)
+end
+
+-- Update collection animations
+function game.updateCollectionAnimations(dt)
+    if game.collection_animations then
+        for i = #game.collection_animations, 1, -1 do
+            local anim = game.collection_animations[i]
+            anim.lifetime = anim.lifetime + dt
+            if anim.lifetime >= anim.max_lifetime then
+                table.remove(game.collection_animations, i)
+            end
+        end
+    else
+        game.collection_animations = {}
+    end
+end
+
+-- Update auto-save system
+function game.updateAutoSave(dt)
+    game.last_auto_save = game.last_auto_save + dt
+    if game.last_auto_save >= game.auto_save_interval then
+        game.trigger("auto_save")
+        game.last_auto_save = 0
+    end
 end
 
 -- Auto-collection update
@@ -193,7 +293,7 @@ function game.updateAutoCollection(dt)
             -- Get camera position (center of screen)
             local cam_x, cam_y = camera.getPosition()
             
-            -- Check for resources within auto-collect radius
+            -- Check for resources within auto-collection radius
             for i, resource in ipairs(world.entities.resources) do
                 local dx = resource.x - cam_x
                 local dy = resource.y - cam_y
@@ -211,35 +311,22 @@ function game.updateAutoCollection(dt)
                         -- Decrement the resource's current bits
                         resource.current_bits = resource.current_bits - bits_to_collect
                         
+                        -- Trigger resource collection event
+                        game.trigger("resource_collected", resource.type, bits_to_collect, resource.x, resource.y)
+                        
                         -- Reset cooldown (shorter for auto-collection)
                         game.auto_collect_cooldown = 1.5
-                        
-                        -- Visual feedback
-                        game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
-                        game.resource_particles[resource.type]:emit(8) -- Fewer particles
-                        
-                        -- Add collection animation
-                        game.addCollectionAnimation(resource.x, resource.y, resource.type, bits_to_collect)
                         
                         -- Update last collect time for pulse effect
                         game.last_collect_time = love.timer.getTime()
                         
-                        -- Play collect sound
-                        audio.playSound("collect")
-                        
                         -- If resource is depleted, remove it from the world
                         if resource.current_bits <= 0 then
-                            -- Special visual effect for depleted resource
-                            game.resource_particles[resource.type]:setPosition(resource.x, resource.y)
-                            game.resource_particles[resource.type]:emit(30) -- More particles for depletion effect
+                            -- Trigger resource depleted event
+                            game.trigger("resource_depleted", resource.type, resource.x, resource.y)
                             
                             -- Remove the resource
                             table.remove(world.entities.resources, i)
-                            
-                            -- Play depleted sound
-                            audio.playSound("depleted")
-                            
-                            log.debug(resource.type .. " resource depleted by auto-collection!")
                         end
                         
                         break -- Only collect one resource per cooldown
@@ -428,12 +515,6 @@ function game.collectResource(resource_type, amount, x, y)
             
             table.insert(created_bits, bit)
         end
-    end
-    
-    -- Visual feedback - particles
-    if game.resource_particles[resource_type] then
-        game.resource_particles[resource_type]:setPosition(x, y)
-        game.resource_particles[resource_type]:emit(8) -- Fewer particles for auto-collection
     end
     
     return created_bits

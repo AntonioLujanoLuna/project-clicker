@@ -261,116 +261,164 @@ end
 
 -- Draw world resources
 function world.drawResources(hover_resource, auto_collect_enabled, auto_collect_radius, show_collect_radius, camera_position, resource_particles, radius_pulse)
-    -- Draw resources with hover effect
     for _, resource in ipairs(world.entities.resources) do
         -- Determine if this resource is being hovered
         local is_hovered = (hover_resource == resource)
         
         -- Determine if resource is within auto-collection radius
-        local in_collection_radius = false
-        if auto_collect_enabled then
-            local cam_x, cam_y = camera_position.x, camera_position.y
-            local dx = resource.x - cam_x
-            local dy = resource.y - cam_y
-            local distance = math.sqrt(dx*dx + dy*dy)
-            in_collection_radius = (distance < auto_collect_radius)
-        end
+        local in_collection_radius = world.isResourceInCollectionRadius(
+            resource, 
+            auto_collect_enabled, 
+            auto_collect_radius, 
+            camera_position
+        )
         
-        -- Calculate the display size based on remaining bits
-        local remaining_ratio = 1
-        if resource.max_bits and resource.current_bits then
-            remaining_ratio = resource.current_bits / resource.max_bits
-            -- Ensure resource doesn't get too small even when nearly depleted
-            remaining_ratio = 0.3 + remaining_ratio * 0.7
-        end
-        local display_size = resource.size * remaining_ratio
-        
-        -- Set color based on resource type, hover state, and collection radius
-        if resource.type == "wood" then
-            if is_hovered then
-                love.graphics.setColor(0.8, 0.6, 0.2, 1) -- Brighter brown when hovered
-            elseif in_collection_radius and show_collect_radius then
-                love.graphics.setColor(0.7, 0.5, 0.15, 1) -- Slightly brighter when in collection radius
-            else
-                love.graphics.setColor(0.6, 0.4, 0.2, 1) -- Normal brown
-            end
-        elseif resource.type == "stone" then
-            if is_hovered then
-                love.graphics.setColor(0.9, 0.9, 0.9, 1) -- Brighter gray when hovered
-            elseif in_collection_radius and show_collect_radius then
-                love.graphics.setColor(0.8, 0.8, 0.8, 1) -- Slightly brighter when in collection radius
-            else
-                love.graphics.setColor(0.7, 0.7, 0.7, 1) -- Normal gray
-            end
-        elseif resource.type == "food" then
-            if is_hovered then
-                love.graphics.setColor(0.3, 1.0, 0.3, 1) -- Brighter green when hovered
-            elseif in_collection_radius and show_collect_radius then
-                love.graphics.setColor(0.25, 0.9, 0.25, 1) -- Slightly brighter when in collection radius
-            else
-                love.graphics.setColor(0.2, 0.8, 0.2, 1) -- Normal green
-            end
-        end
-        
-        -- Draw the resource with adjusted size
-        love.graphics.rectangle("fill", resource.x - display_size/2, resource.y - display_size/2, display_size, display_size)
-        
-        -- Draw highlight effect if hovered
+        -- Draw the resource with appropriate visual state
+        world.drawResourceEntity(
+            resource, 
+            is_hovered, 
+            in_collection_radius, 
+            show_collect_radius, 
+            camera_position, 
+            radius_pulse
+        )
+    end
+    
+    -- Reset color
+    love.graphics.setColor(1, 1, 1)
+end
+
+-- Check if a resource is within the auto-collection radius
+function world.isResourceInCollectionRadius(resource, auto_collect_enabled, auto_collect_radius, camera_position)
+    if not auto_collect_enabled then
+        return false
+    end
+    
+    local cam_x, cam_y = camera_position.x, camera_position.y
+    local dx = resource.x - cam_x
+    local dy = resource.y - cam_y
+    local distance = math.sqrt(dx*dx + dy*dy)
+    
+    return (distance < auto_collect_radius)
+end
+
+-- Calculate the display size of a resource based on remaining bits
+function world.calculateResourceDisplaySize(resource)
+    local remaining_ratio = 1
+    if resource.max_bits and resource.current_bits then
+        remaining_ratio = resource.current_bits / resource.max_bits
+        -- Ensure resource doesn't get too small even when nearly depleted
+        remaining_ratio = 0.3 + remaining_ratio * 0.7
+    end
+    
+    return resource.size * remaining_ratio
+end
+
+-- Get the appropriate color for a resource based on its state
+function world.getResourceColor(resource_type, is_hovered, in_collection_radius, show_collect_radius)
+    if resource_type == "wood" then
         if is_hovered then
-            -- Pulsating glow effect
-            local pulse = 0.7 + math.sin(love.timer.getTime() * 5) * 0.3
-            local glow_size = display_size * (1.2 + pulse * 0.2)
-            
-            -- Draw glow
-            love.graphics.setColor(1, 1, 1, 0.3 * pulse)
-            love.graphics.rectangle("fill", 
-                resource.x - glow_size/2, 
-                resource.y - glow_size/2, 
-                glow_size, glow_size)
-                
-            -- Draw "Click to collect" text and remaining bits
-            love.graphics.setColor(1, 1, 1, 0.9)
-            love.graphics.printf("Click to collect", 
-                resource.x - 60, 
-                resource.y - display_size - 20, 
-                120, "center")
-            
-            -- Show remaining bits if available
-            if resource.current_bits then
-                love.graphics.printf(resource.current_bits .. "/" .. resource.max_bits .. " bits", 
-                    resource.x - 60, 
-                    resource.y - display_size - 40, 
-                    120, "center")
-            end
+            return {0.8, 0.6, 0.2, 1} -- Brighter brown when hovered
+        elseif in_collection_radius and show_collect_radius then
+            return {0.7, 0.5, 0.15, 1} -- Slightly brighter when in collection radius
+        else
+            return {0.6, 0.4, 0.2, 1} -- Normal brown
         end
-        
+    elseif resource_type == "stone" then
+        if is_hovered then
+            return {0.9, 0.9, 0.9, 1} -- Brighter gray when hovered
+        elseif in_collection_radius and show_collect_radius then
+            return {0.8, 0.8, 0.8, 1} -- Slightly brighter when in collection radius
+        else
+            return {0.7, 0.7, 0.7, 1} -- Normal gray
+        end
+    elseif resource_type == "food" then
+        if is_hovered then
+            return {0.3, 1.0, 0.3, 1} -- Brighter green when hovered
+        elseif in_collection_radius and show_collect_radius then
+            return {0.25, 0.9, 0.25, 1} -- Slightly brighter when in collection radius
+        else
+            return {0.2, 0.8, 0.2, 1} -- Normal green
+        end
+    end
+    
+    return {1, 1, 1, 1} -- Default white
+end
+
+-- Draw a single resource entity
+function world.drawResourceEntity(resource, is_hovered, in_collection_radius, show_collect_radius, camera_position, radius_pulse)
+    -- Calculate the display size based on remaining bits
+    local display_size = world.calculateResourceDisplaySize(resource)
+    
+    -- Set color based on resource type, hover state, and collection radius
+    local color = world.getResourceColor(resource.type, is_hovered, in_collection_radius, show_collect_radius)
+    love.graphics.setColor(color)
+    
+    -- Draw the resource with adjusted size
+    love.graphics.rectangle("fill", resource.x - display_size/2, resource.y - display_size/2, display_size, display_size)
+    
+    -- Draw hover effects if needed
+    if is_hovered then
+        world.drawResourceHoverEffects(resource, display_size)
+    else
         -- Always show remaining bits (smaller text when not hovered)
-        if resource.current_bits and not is_hovered then
+        if resource.current_bits then
             love.graphics.setColor(1, 1, 1, 0.7)
             love.graphics.printf(resource.current_bits, 
                 resource.x - 20, 
                 resource.y - 8, 
                 40, "center")
         end
-        
-        -- Draw indicator for resources in collection radius
-        if in_collection_radius and show_collect_radius and not is_hovered then
-            -- Pulsating effect based on radius pulse
-            local pulse = 0.5 + math.sin(radius_pulse or 0) * 0.2
-            
-            -- Draw a small indicator above the resource
-            love.graphics.setColor(0.2, 0.8, 0.2, pulse)
-            love.graphics.circle("fill", resource.x, resource.y - display_size/2 - 15, 5)
-            
-            -- Draw a connecting line to the center
-            local cam_x, cam_y = camera_position.x, camera_position.y
-            love.graphics.setColor(0.2, 0.8, 0.2, pulse * 0.3)
-            love.graphics.line(resource.x, resource.y, cam_x, cam_y)
-        end
     end
     
-    -- Reset color
-    love.graphics.setColor(1, 1, 1)
+    -- Draw collection radius indicator if needed
+    if in_collection_radius and show_collect_radius and not is_hovered then
+        world.drawCollectionRadiusIndicator(resource, display_size, camera_position, radius_pulse)
+    end
+end
+
+-- Draw hover effects for a resource
+function world.drawResourceHoverEffects(resource, display_size)
+    -- Pulsating glow effect
+    local pulse = 0.7 + math.sin(love.timer.getTime() * 5) * 0.3
+    local glow_size = display_size * (1.2 + pulse * 0.2)
+    
+    -- Draw glow
+    love.graphics.setColor(1, 1, 1, 0.3 * pulse)
+    love.graphics.rectangle("fill", 
+        resource.x - glow_size/2, 
+        resource.y - glow_size/2, 
+        glow_size, glow_size)
+        
+    -- Draw "Click to collect" text and remaining bits
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.printf("Click to collect", 
+        resource.x - 60, 
+        resource.y - display_size - 20, 
+        120, "center")
+    
+    -- Show remaining bits if available
+    if resource.current_bits then
+        love.graphics.printf(resource.current_bits .. "/" .. resource.max_bits .. " bits", 
+            resource.x - 60, 
+            resource.y - display_size - 40, 
+            120, "center")
+    end
+end
+
+-- Draw collection radius indicator for a resource
+function world.drawCollectionRadiusIndicator(resource, display_size, camera_position, radius_pulse)
+    -- Pulsating effect based on radius pulse
+    local pulse = 0.5 + math.sin(radius_pulse or 0) * 0.2
+    
+    -- Draw a small indicator above the resource
+    love.graphics.setColor(0.2, 0.8, 0.2, pulse)
+    love.graphics.circle("fill", resource.x, resource.y - display_size/2 - 15, 5)
+    
+    -- Draw a connecting line to the center
+    local cam_x, cam_y = camera_position.x, camera_position.y
+    love.graphics.setColor(0.2, 0.8, 0.2, pulse * 0.3)
+    love.graphics.line(resource.x, resource.y, cam_x, cam_y)
 end
 
 -- Draw world robots
