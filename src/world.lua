@@ -429,12 +429,13 @@ end
 -- Add a robot to the world
 function world.addRobot(robot_type_key, robots_config)
     local robot_type = robots_config[robot_type_key or "GATHERER"]
+    local cam_x, cam_y = camera.getPosition()
     
     local robot = {
-        x = love.math.random(-world.WIDTH/2 + 200, world.WIDTH/2 - 200),
-        y = world.GROUND_LEVEL - 16,  -- Place on ground, adjusted for pixel art height
+        x = cam_x + love.math.random(-100, 100), -- Spawn near camera
+        y = world.GROUND_LEVEL - 16,
         size = 16,
-        type = robot_type_key or "GATHERER", -- Store the type key
+        type = robot_type_key or "GATHERER",
         state = "idle",
         cooldown = 0,
         target_x = 0,

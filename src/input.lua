@@ -196,9 +196,6 @@ function input.keypressed(key, camera, game, ui, tutorial)
                 game.paused = not game.paused
                 log.info("Game " .. (game.paused and "paused" or "resumed"))
             end
-        elseif key == "f" then
-            -- Handle F key for camera movement
-            -- This seems to already be working
         elseif key == "=" or key == "+" then
             -- Scale UI up
             if ui.increaseScale then

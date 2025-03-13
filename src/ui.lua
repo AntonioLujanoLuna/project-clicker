@@ -5,6 +5,7 @@ local robots = require("src.robots")
 local log = require("src.log")
 local audio = require("src.audio")
 local tutorial = require("src.tutorial")
+local world = require("src.world")
 
 local ui = {}
 
@@ -363,6 +364,10 @@ function ui.draw(resources, pollution_level, research_points)
                 love.graphics.printf(cost_text, button.x, button.y + 35, button.width, "center")
             end
         end
+        -- Add robot count
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.printf("Robots: " .. #world.entities.robots, 
+        robot_panel.x + robot_panel.width - 100, robot_panel.y + 10, 90, "right")
     end
     
     -- Draw research panel if visible
