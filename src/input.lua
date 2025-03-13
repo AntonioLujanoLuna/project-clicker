@@ -186,7 +186,7 @@ function input.keypressed(key, camera, game, ui, tutorial)
         elseif key == "v" or key == "a" then
             local visible = game.toggleCollectRadiusVisibility()
             log.info("Collection radius " .. (visible and "visible" or "hidden"))
-        elseif key == "f11" then
+        elseif key == "f" then
             -- Toggle fullscreen
             love.window.setFullscreen(not love.window.getFullscreen())
             log.info("Fullscreen: " .. (love.window.getFullscreen() and "enabled" or "disabled"))

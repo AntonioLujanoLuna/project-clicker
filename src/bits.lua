@@ -382,6 +382,11 @@ function bits.update(dt, ground_level, resource_banks, resources_collected, coll
                     local dist = math.sqrt(dx*dx + dy*dy)
                     
                     if dist < 25 then
+                        -- Initialize resource counter if it doesn't exist
+                        if not resources_collected[bit.type] then 
+                            resources_collected[bit.type] = 0
+                        end
+
                         -- Add to resource count 
                         resources_collected[bit.type] = resources_collected[bit.type] + 1
                         
@@ -403,7 +408,7 @@ function bits.update(dt, ground_level, resource_banks, resources_collected, coll
                         -- Remove from active bits
                         table.remove(bits.resource_bits, i)
                         
-                        log.debug("Added " .. bit.type .. " to inventory! Total: " .. resources_collected[bit.type])
+                        log.debug("Added " .. tostring(bit.type) .. " to inventory! Total: " .. tostring(resources_collected[bit.type] or 0))
                     end
                 end
             end
