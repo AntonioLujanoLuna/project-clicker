@@ -17,7 +17,8 @@ local audio = require("src.audio")
 local world = require("src.world")
 local input = require("src.input")
 local tutorial = require("src.tutorial")
-local events = require("src.events")  -- Add the events module
+local events = require("src.events")  
+local saveload = require("src.saveload")
 
 local game = {}
 
@@ -46,21 +47,6 @@ game.last_auto_save = 0
 
 -- Resource particles for visual feedback
 game.resource_particles = {}
-
--- Event system for decoupling game systems
--- Remove these lines as we're now using the events module
--- game.events = {}
--- game.event_handlers = {}
-
--- Register an event handler (redirect to events module)
-function game.on(event_name, handler_function)
-    events.on(event_name, handler_function)
-end
-
--- Trigger an event (redirect to events module)
-function game.trigger(event_name, ...)
-    events.trigger(event_name, ...)
-end
 
 -- Initialize the game
 function game.load()
@@ -146,7 +132,7 @@ function game.setupEventHandlers()
     
     -- Auto-save event
     events.on("auto_save", function()
-        local success, message = game.saveGame()
+        local success, message = saveload.saveGame(game, world)
         if success then
             log.info("Auto-saved game.")
         else
@@ -387,8 +373,9 @@ function game.draw()
     world.drawBackground()
     
     -- Draw collection radius
+    local cam_x, cam_y = camera.getPosition()
     world.drawCollectionRadius(game.auto_collect_enabled, game.show_collect_radius, 
-                              game.AUTO_COLLECT_RADIUS, camera.getPosition(), 
+                              game.AUTO_COLLECT_RADIUS, {x = cam_x, y = cam_y}, 
                               game.radius_pulse, game.last_collect_time)
     
     -- Draw resource banks
@@ -396,7 +383,7 @@ function game.draw()
     
     -- Draw resources (we're not tracking which resource is hovered directly anymore)
     world.drawResources(nil, game.auto_collect_enabled, game.AUTO_COLLECT_RADIUS,
-                       game.show_collect_radius, {x = camera.getPosition()}, 
+                       game.show_collect_radius, {x = cam_x, y = cam_y}, 
                        game.resource_particles, game.radius_pulse)
     
     -- Draw resource bits
@@ -461,17 +448,6 @@ function game.wheelmoved(x, y)
     input.wheelmoved(x, y, camera)
 end
 
--- Key press handling
-function game.keypressed(key)
-    -- This function should only handle game-specific state changes
-    -- and NOT call input.keypressed or process input directly
-    
-    -- You can add game-specific handlers here, but be careful not to
-    -- duplicate what's already in input.keypressed
-    
-    -- Return false to signal that no handlers were triggered
-    return false
-end
 
 -- Add a robot to the world
 function game.addRobot(robot_type_key)
@@ -565,148 +541,5 @@ function game.collectResource(resource_type, amount, x, y)
     return created_bits
 end
 
--- Save game state to a file
-function game.saveGame()
-    log.info("Saving game state...")
-    
-    -- Create a save data structure
-    local save_data = {
-        version = game.save_version,
-        timestamp = os.time(),
-        resources_collected = game.resources_collected,
-        pollution_level = game.pollution_level,
-        research_points = game.research_points,
-        buildings = {},
-        robots = {}
-    }
-    
-    -- Add buildings data
-    for i, building in ipairs(world.entities.buildings) do
-        table.insert(save_data.buildings, {
-            type = building.type,
-            x = building.x,
-            y = building.y
-        })
-    end
-    
-    -- Add robots data
-    for i, robot in ipairs(world.entities.robots) do
-        table.insert(save_data.robots, {
-            type = robot.type,
-            x = robot.x,
-            y = robot.y,
-            state = robot.state
-        })
-    end
-    
-    -- Add resources data
-    save_data.resources = {}
-    for i, resource in ipairs(world.entities.resources) do
-        table.insert(save_data.resources, {
-            type = resource.type,
-            x = resource.x,
-            y = resource.y,
-            current_bits = resource.current_bits
-        })
-    end
-    
-    -- Write to file
-    local success, message = pcall(function()
-        love.filesystem.write("save.json", json.encode(save_data))
-    end)
-    
-    if success then
-        log.info("Game saved successfully")
-    else
-        log.error("Failed to save game: " .. tostring(message))
-    end
-    
-    return success, message
-end
-
--- Load game state from a file
-function game.loadGame()
-    log.info("Loading game state...")
-    
-    if not love.filesystem.getInfo("save.json") then
-        log.warning("No save file found")
-        return false, "No save file found."
-    end
-    
-    local success, data = pcall(function()
-        local contents = love.filesystem.read("save.json")
-        return json.decode(contents)
-    end)
-    
-    if not success then
-        log.error("Failed to load save file: " .. tostring(data))
-        return false, "Corrupted save file."
-    end
-    
-    -- Check version compatibility
-    if data.version ~= game.save_version then
-        log.warning("Save version mismatch: " .. data.version .. " vs " .. game.save_version)
-    end
-    
-    -- Reset game state
-    world.entities.buildings = {}
-    world.entities.robots = {}
-    world.entities.resources = {}
-    
-    -- Clear resource bits
-    bits.clearAll()
-    
-    -- Load resources
-    game.resources_collected = data.resources_collected or { wood = 0, stone = 0, food = 0 }
-    game.pollution_level = data.pollution_level or 0
-    game.research_points = data.research_points or 0
-    
-    -- Load buildings
-    if data.buildings then
-        for _, building_data in ipairs(data.buildings) do
-            local building = {
-                type = building_data.type,
-                x = building_data.x,
-                y = building_data.y
-            }
-            table.insert(world.entities.buildings, building)
-        end
-    end
-    
-    -- Load robots
-    if data.robots then
-        for _, robot_data in ipairs(data.robots) do
-            local robot = {
-                type = robot_data.type,
-                x = robot_data.x,
-                y = robot_data.y,
-                state = robot_data.state or "idle",
-                size = robots.TYPES[robot_data.type].size,
-                cooldown = 0
-            }
-            table.insert(world.entities.robots, robot)
-        end
-    end
-    
-    -- Load resources
-    if data.resources then
-        for _, resource_data in ipairs(data.resources) do
-            local resource = {
-                type = resource_data.type,
-                x = resource_data.x,
-                y = resource_data.y,
-                current_bits = resource_data.current_bits,
-                max_bits = resource_data.max_bits or resource_data.current_bits
-            }
-            table.insert(world.entities.resources, resource)
-        end
-    else
-        -- If no resources in save, regenerate them
-        world.generateResources()
-    end
-    
-    log.info("Game loaded successfully")
-    return true, "Game loaded successfully."
-end
 
 return game

@@ -7,6 +7,7 @@ local audio = require("src.audio")
 local tutorial = require("src.tutorial")
 local world = require("src.world")
 local events = require("src.events")
+local saveload = require("src.saveload")
 
 local ui = {}
 
@@ -740,7 +741,7 @@ function ui.mousepressed(x, y, button, game)
             if x >= save_button.x and x <= save_button.x + save_button.width and
                y >= save_button.y and y <= save_button.y + save_button.height then
                 -- Save game
-                local success, message = game.saveGame()
+                local success, message = saveload.saveGame(game, world)
                 if success then
                     log.info("Game saved successfully")
                     -- Show feedback message
@@ -775,7 +776,7 @@ function ui.mousepressed(x, y, button, game)
             if x >= load_button.x and x <= load_button.x + load_button.width and
                y >= load_button.y and y <= load_button.y + load_button.height then
                 -- Load game
-                local success, message = game.loadGame()
+                local success, message = saveload.loadGame(game, world, bits, robots.TYPES)
                 if success then
                     log.info("Game loaded successfully")
                     -- Show feedback message
@@ -920,14 +921,6 @@ function ui.mousemoved(x, y)
         audio_toggle_button.hover = x >= audio_toggle_button.x and x <= audio_toggle_button.x + audio_toggle_button.width and
                                    y >= audio_toggle_button.y and y <= audio_toggle_button.y + audio_toggle_button.height
     end
-end
-
-function ui.keypressed(key)
-    -- Keep this function minimal to avoid circular dependencies
-    -- Most functionality is now in input.keypressed
-    
-    -- Handle any UI-specific functionality that isn't already in input.keypressed
-    log.info("UI keypressed: " .. key)
 end
 
 -- Add this helper function to ui.lua

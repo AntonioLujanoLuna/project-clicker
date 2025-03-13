@@ -602,16 +602,6 @@ function world.findNearestBit(bit_type, x, y)
     return nearest_bit, nearest_index, nearest_distance
 end
 
--- Find a resource by type
-function world.findResourceByType(resource_type)
-    for i, resource in ipairs(world.entities.resources) do
-        if resource.type == resource_type and resource.current_bits > 0 then
-            return resource, i
-        end
-    end
-    return nil, nil
-end
-
 -- Reset the world
 function world.reset()
     world.entities.resources = {}
