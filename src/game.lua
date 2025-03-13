@@ -1082,6 +1082,73 @@ function game.drawResourceBits()
     end
 end
 
+function game.createBitsFromResource(resource, bits_to_generate)
+    local created_bits = {}
+    
+    for j = 1, bits_to_generate do
+        local bit = game.getBitFromPool() -- Use object pool
+        if bit then
+            bit.x = resource.x + love.math.random(-20, 20)
+            bit.y = resource.y - love.math.random(5, 15)
+            bit.type = resource.type
+            bit.size = 3
+            -- IMPORTANT: Give strong initial velocities to make bits visibly move
+            bit.vx = love.math.random(-50, 50)  -- Increased range for more movement
+            bit.vy = -love.math.random(150, 300) -- Stronger upward velocity
+            bit.grounded = false
+            bit.moving_to_bank = false
+            bit.creation_time = love.timer.getTime()
+            bit.active = true
+            
+            table.insert(game.resource_bits, bit)
+            table.insert(created_bits, bit)
+        end
+    end
+    
+    -- Debug output to verify bits are created with proper velocities
+    if #created_bits > 0 then
+        log.debug("Created " .. #created_bits .. " bits. Sample velocity: vx=" .. 
+                 created_bits[1].vx .. ", vy=" .. created_bits[1].vy)
+    end
+    
+    return created_bits
+end
+
+function game.sendBitsToBank(bits, bank_type)
+    local bank = game.resource_banks[bank_type]
+    if not bank then return 0 end
+    
+    local count = 0
+    for _, bit in ipairs(bits) do
+        -- Calculate direction toward bank
+        local dx = bank.x - bit.x
+        local dy = bank.y - bit.y
+        local distance = math.sqrt(dx*dx + dy*dy)
+        local dir_x = dx / distance
+        local dir_y = dy / distance
+        
+        -- Jump strength based on distance, but with more consistent behavior
+        local jump_strength = math.min(distance * 0.4, 300)
+        
+        -- Apply slight randomization for natural look
+        jump_strength = jump_strength + love.math.random(-20, 20)
+        
+        -- Improved jumping physics - stronger velocities
+        bit.vx = dir_x * jump_strength
+        bit.vy = -400 - love.math.random(0, 100) -- Much stronger upward velocity
+        bit.grounded = false
+        bit.moving_to_bank = true
+        
+        -- Debug output to confirm velocity is set
+        log.debug("Bit velocity toward bank: vx=" .. bit.vx .. ", vy=" .. bit.vy)
+        
+        count = count + 1
+    end
+    
+    return count
+end
+
+
 -- Create a resource bit when a resource is clicked
 function game.createResourceBit(resource_type, x, y)
     -- Convert resource type to lowercase if needed
@@ -1593,25 +1660,18 @@ function game.generateResources()
         local max_bits = resource_config and resource_config.bits and resource_config.bits.max or 50
         
         -- Create 10 resources of each type
-        for i = 1, 10 do
-            local x, y
-            local valid_position = false
-            local attempts = 0
-            local max_attempts = 50
-            local min_distance = config.resources.min_bank_distance or 200
+        local resources_created = 0
+        local attempts = 0
+        local max_attempts = 200 -- Increase max attempts to ensure we find enough valid positions
+        local min_distance = config.resources.min_bank_distance or 200
+        
+        while resources_created < 10 and attempts < max_attempts do
+            local x = math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
+            local y = game.GROUND_LEVEL - math.random(10, 30)
+            attempts = attempts + 1
             
-            -- Try to find a position not too close to any bank
-            while not valid_position and attempts < max_attempts do
-                x = math.random(-game.WORLD_WIDTH/2 + 100, game.WORLD_WIDTH/2 - 100)
-                y = game.GROUND_LEVEL - math.random(10, 30)
-                
-                -- Check if the position is too close to any bank
-                valid_position = not isTooCloseToBank(x, y, min_distance)
-                attempts = attempts + 1
-            end
-            
-            -- Only create the resource if we found a valid position
-            if valid_position then
+            -- Check if the position is too close to any bank
+            if not isTooCloseToBank(x, y, min_distance) then
                 -- Calculate max bits (random value between min and max)
                 local resource_max_bits = math.floor(min_bits + math.random() * (max_bits - min_bits))
                 
@@ -1625,13 +1685,15 @@ function game.generateResources()
                     current_bits = resource_max_bits,
                     active = true
                 })
-            else
-                log.warning("Could not find valid position for " .. resource_type .. " resource after " .. max_attempts .. " attempts")
+                
+                resources_created = resources_created + 1
             end
         end
+        
+        log.info("Created " .. resources_created .. " " .. resource_type .. " resources after " .. attempts .. " attempts")
     end
     
-    log.info("Generated " .. #game.world_entities.resources .. " resources")
+    log.info("Generated " .. #game.world_entities.resources .. " total resources")
 end
 
 -- Initialize the object pool for resource bits
@@ -1721,6 +1783,16 @@ function game.releaseBitToPool(bit)
         bit.moving_to_bank = false
         bit.grid_cell = nil
         bit.creation_time = 0
+    end
+end
+
+function game.drawDebugVelocities()
+    for _, bit in ipairs(game.resource_bits) do
+        if bit.active and (math.abs(bit.vx) > 0.1 or math.abs(bit.vy) > 0.1) then
+            -- Draw velocity vector
+            love.graphics.setColor(1, 0, 0, 0.5)
+            love.graphics.line(bit.x, bit.y, bit.x + bit.vx * 0.1, bit.y + bit.vy * 0.1)
+        end
     end
 end
 

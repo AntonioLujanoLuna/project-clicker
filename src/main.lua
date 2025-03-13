@@ -169,24 +169,8 @@ function love.mousepressed(x, y, button)
                     if resource.current_bits and resource.current_bits > 0 then
                         -- Generate bits directly
                         local bits_to_generate = math.min(15, resource.current_bits)
-                        
-                        for j = 1, bits_to_generate do
-                            local bit = game.getBitFromPool() -- Use object pool
-                            if bit then
-                                bit.x = resource.x + love.math.random(-20, 20)
-                                bit.y = resource.y - love.math.random(5, 15)
-                                bit.type = resource.type
-                                bit.size = 3
-                                bit.vx = love.math.random(-30, 30)
-                                bit.vy = -love.math.random(100, 200)
-                                bit.grounded = false
-                                bit.moving_to_bank = false
-                                bit.creation_time = love.timer.getTime()
-                                bit.active = true
-                                
-                                table.insert(game.resource_bits, bit)
-                            end
-                        end
+                        local created_bits = game.createBitsFromResource(resource, bits_to_generate)
+                        log.info("Created " .. #created_bits .. " bits from resource click")
                         
                         -- Update resource
                         resource.current_bits = resource.current_bits - bits_to_generate
