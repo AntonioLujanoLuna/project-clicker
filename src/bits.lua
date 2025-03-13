@@ -39,6 +39,13 @@ bits.resource_bit_pixels = {
     }
 }
 
+-- Load function to initialize the bits module
+function bits.load()
+    log.info("Loading bits module")
+    -- We'll call initPool in game.lua after this, so we can leave this empty
+    -- or add any additional initialization here
+end
+
 -- Initialize object pool for resource bits
 function bits.initPool()
     bits.bit_pool = {}

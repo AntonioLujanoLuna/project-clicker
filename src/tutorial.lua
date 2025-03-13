@@ -96,6 +96,21 @@ function tutorial.load()
     end
 end
 
+-- Add the missing update function
+function tutorial.update(dt)
+    -- This could contain animations or timing logic for the tutorial
+    -- For now, it can be a minimal implementation that just exists to prevent the nil error
+    
+    -- If we wanted to add tutorial timing or animations in the future:
+    -- - Tutorial step timing
+    -- - Highlighting animations
+    -- - Automatic progression after waiting
+    
+    if tutorial.active then
+        -- Currently no animations, but function exists to prevent nil error
+    end
+end
+
 function tutorial.start()
     if not tutorial.completed and tutorial.show_tutorial then
         tutorial.active = true
@@ -282,4 +297,4 @@ function tutorial.mousepressed(x, y, button)
     return false
 end
 
-return tutorial 
+return tutorial
