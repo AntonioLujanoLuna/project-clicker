@@ -336,12 +336,12 @@ end
 -- Key press handling
 function game.keypressed(key)
     input.keypressed(key, camera, game, ui, tutorial)
-}
+end
 
 -- Add a robot to the world
 function game.addRobot(robot_type_key)
     return world.addRobot(robot_type_key, robots.TYPES)
-}
+end
 
 -- Check for resource clicks
 function game.checkResourceClicks(x, y)
@@ -351,7 +351,7 @@ function game.checkResourceClicks(x, y)
     -- Check if these are world coordinates that need conversion
     if camera.isWorldCoordinate(x, y) then
         screen_x, screen_y = camera.worldToScreen(x, y)
-    }
+    end
     
     -- Use resources.lua's click function to handle resource clicking
     local pollution = resources.click(screen_x, screen_y, game.resources_collected, game.pollution_level, bits.createBitsFromResource)
@@ -360,10 +360,10 @@ function game.checkResourceClicks(x, y)
         -- Handle pollution generation
         game.pollution_level = game.pollution_level + pollution
         return true
-    }
+    end
     
     return false
-}
+end
 
 -- Add collection animation
 function game.addCollectionAnimation(x, y, resource_type, amount)
@@ -376,7 +376,7 @@ function game.addCollectionAnimation(x, y, resource_type, amount)
     -- Initialize collection_animations if it doesn't exist
     if not game.collection_animations then
         game.collection_animations = {}
-    }
+    end
     
     table.insert(game.collection_animations, {
         x = x,
@@ -386,19 +386,19 @@ function game.addCollectionAnimation(x, y, resource_type, amount)
         lifetime = 0,
         max_lifetime = 1.5
     })
-}
+end
 
 -- Function to toggle auto-collection
 function game.toggleAutoCollect()
     game.auto_collect_enabled = not game.auto_collect_enabled
     return game.auto_collect_enabled
-}
+end
 
 -- Function to toggle collection radius visualization
 function game.toggleCollectRadiusVisibility()
     game.show_collect_radius = not game.show_collect_radius
     return game.show_collect_radius
-}
+end
 
 -- Collect resource and generate bits
 function game.collectResource(resource_type, amount, x, y)
@@ -420,17 +420,17 @@ function game.collectResource(resource_type, amount, x, y)
             bit.creation_time = love.timer.getTime()
             
             table.insert(created_bits, bit)
-        }
-    }
+        end
+    end
     
     -- Visual feedback - particles
     if game.resource_particles[resource_type] then
         game.resource_particles[resource_type]:setPosition(x, y)
         game.resource_particles[resource_type]:emit(8) -- Fewer particles for auto-collection
-    }
+    end
     
     return created_bits
-}
+end
 
 -- Save game state to a file
 function game.saveGame()
@@ -454,7 +454,7 @@ function game.saveGame()
             x = building.x,
             y = building.y
         })
-    }
+    end
     
     -- Add robots data
     for i, robot in ipairs(world.entities.robots) do
@@ -464,7 +464,7 @@ function game.saveGame()
             y = robot.y,
             state = robot.state
         })
-    }
+    end
     
     -- Add resources data
     save_data.resources = {}
@@ -475,21 +475,21 @@ function game.saveGame()
             y = resource.y,
             current_bits = resource.current_bits
         })
-    }
+    end
     
     -- Write to file
     local success, message = pcall(function()
         love.filesystem.write("save.json", json.encode(save_data))
-    })
+    end)
     
     if success then
         log.info("Game saved successfully")
     else
         log.error("Failed to save game: " .. tostring(message))
-    }
+    end
     
     return success, message
-}
+end
 
 -- Load game state from a file
 function game.loadGame()
@@ -498,22 +498,22 @@ function game.loadGame()
     if not love.filesystem.getInfo("save.json") then
         log.warning("No save file found")
         return false, "No save file found."
-    }
+    end
     
     local success, data = pcall(function()
         local contents = love.filesystem.read("save.json")
         return json.decode(contents)
-    })
+    )
     
     if not success then
         log.error("Failed to load save file: " .. tostring(data))
         return false, "Corrupted save file."
-    }
+    end
     
     -- Check version compatibility
     if data.version ~= game.save_version then
         log.warning("Save version mismatch: " .. data.version .. " vs " .. game.save_version)
-    }
+    end
     
     -- Reset game state
     world.entities.buildings = {}
@@ -537,8 +537,8 @@ function game.loadGame()
                 y = building_data.y
             }
             table.insert(world.entities.buildings, building)
-        }
-    }
+        end
+    end
     
     -- Load robots
     if data.robots then
@@ -552,8 +552,8 @@ function game.loadGame()
                 cooldown = 0
             }
             table.insert(world.entities.robots, robot)
-        }
-    }
+        end
+    end
     
     -- Load resources
     if data.resources then
@@ -566,14 +566,14 @@ function game.loadGame()
                 max_bits = resource_data.max_bits or resource_data.current_bits
             }
             table.insert(world.entities.resources, resource)
-        }
+        end
     else
         -- If no resources in save, regenerate them
         world.generateResources()
-    }
+    end
     
     log.info("Game loaded successfully")
     return true, "Game loaded successfully."
-}
+end
 
 return game
